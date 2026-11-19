@@ -1,0 +1,9 @@
+{
+  "name": "ভূমিঘর BHUMIGHOR",
+  "short_name": "ভূমিঘর",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f8f3",
+  "theme_color": "#14532d",
+  "description": "জমির গুরুত্বপূর্ণ নথি সংরক্ষণের অ্যাপ"
+}
