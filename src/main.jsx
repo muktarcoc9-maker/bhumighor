@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { supabase, STORAGE_BUCKET } from './supabase'
 import {
   Plus, Search, LogOut, FileText, Trash2, Download, X,
-  ShieldCheck, Pencil, Upload, FolderOpen
+  ShieldCheck, Pencil, Upload, FolderOpen, Eye, EyeOff
 } from 'lucide-react'
 import './style.css'
 
@@ -71,6 +71,7 @@ function App() {
   const [authMode, setAuthMode] = useState('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [authBusy, setAuthBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [records, setRecords] = useState([])
@@ -479,14 +480,47 @@ function App() {
 
             <label>
               পাসওয়ার্ড
-              <input
-                type="password"
-                required
-                minLength="6"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="কমপক্ষে ৬ অক্ষর"
-              />
+
+              <div style={{ position: 'relative', width: '100%' }}>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  minLength="6"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="কমপক্ষে ৬ অক্ষর"
+                  style={{
+                    paddingRight: '46px',
+                    width: '100%',
+                    boxSizing: 'border-box'
+                  }}
+                />
+
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(value => !value)}
+                  aria-label={showPassword ? 'পাসওয়ার্ড লুকান' : 'পাসওয়ার্ড দেখুন'}
+                  title={showPassword ? 'পাসওয়ার্ড লুকান' : 'পাসওয়ার্ড দেখুন'}
+                  style={{
+                    position: 'absolute',
+                    right: '8px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '7px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#64748b'
+                  }}
+                >
+                  {showPassword
+                    ? <EyeOff size={20} />
+                    : <Eye size={20} />}
+                </button>
+              </div>
             </label>
 
             <button className="primary full" disabled={authBusy}>
