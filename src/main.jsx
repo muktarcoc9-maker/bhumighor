@@ -89,6 +89,7 @@ function App() {
   const [filePreview, setFilePreview] = useState(null)
   const [filePreviewLoading, setFilePreviewLoading] = useState(false)
   const [printRecord, setPrintRecord] = useState(null)
+  const [selectedRecordIds, setSelectedRecordIds] = useState([])
 
   const [pendingFiles, setPendingFiles] = useState([])
   const [fileCategory, setFileCategory] = useState('জমির দলিল')
@@ -1340,6 +1341,20 @@ function App() {
             <h2>সংরক্ষিত জমির তথ্য</h2>
             <span>{filtered.length} টি</span>
           </div>
+          {filtered.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px', padding: '12px', marginBottom: '14px', border: '1px solid #d5e4da', borderRadius: '10px', background: '#f5faf6' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600 }}>
+                <input type="checkbox" checked={filtered.length > 0 && filtered.every(r => selectedRecordIds.includes(r.id))}
+                  onChange={e => setSelectedRecordIds(e.target.checked ? filtered.map(r => r.id) : [])} />
+                সবগুলো নির্বাচন করুন
+              </label>
+              <span style={{ color: '#52645a' }}>নির্বাচিত: {selectedRecordIds.filter(id => filtered.some(r => r.id === id)).length} টি</span>
+              <button type="button" className="primary" disabled={!selectedRecordIds.some(id => filtered.some(r => r.id === id))}
+                onClick={() => setPrintRecord(filtered.filter(r => selectedRecordIds.includes(r.id)))}>
+                <Printer size={16} /> নির্বাচিত জমির সম্মিলিত PDF / প্রিন্ট
+              </button>
+            </div>
+          )}
 
           {filtered.length === 0 ? (
             <div className="empty">
@@ -1354,6 +1369,11 @@ function App() {
 
                 return (
                   <article className="record-card" key={r.id}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', fontWeight: 600 }}>
+                      <input type="checkbox" checked={selectedRecordIds.includes(r.id)}
+                        onChange={e => setSelectedRecordIds(current => e.target.checked ? [...current, r.id] : current.filter(id => id !== r.id))} />
+                      PDF রিপোর্টের জন্য নির্বাচন করুন
+                    </label>
                     <div className="record-icon">
                       <FileText />
                     </div>
@@ -1472,7 +1492,7 @@ function App() {
                     <div style={{ marginTop: '10px', width: '100%' }}>
                       <button
                         type="button"
-                        onClick={() => setPrintRecord(r)}
+                        onClick={() => setPrintRecord([r])}
                         aria-label="জমির তথ্য PDF তৈরি বা প্রিন্ট করুন"
                         style={{
                           width: '100%',
@@ -1590,7 +1610,7 @@ function App() {
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', marginTop: '18px' }}>
-                <button type="button" className="primary" onClick={() => setPrintRecord(previewRecord)}>
+                <button type="button" className="primary" onClick={() => setPrintRecord([previewRecord])}>
                   <Printer size={16} /> PDF তৈরি / প্রিন্ট
                 </button>
                 <button type="button" className="ghost" onClick={() => setPreviewRecord(null)}>বন্ধ করুন</button>
@@ -1600,12 +1620,14 @@ function App() {
         )}
 
         <style>{`
-          #bhumighor-print-report { display: none; }
+          #bhumighor-print-report, .report-summary { display: none; }
           @media print {
             @page { size: A4; margin: 16mm; }
             html, body, #root { background: #fff !important; min-height: 0 !important; }
             body * { visibility: hidden !important; }
             #bhumighor-print-report, #bhumighor-print-report * { visibility: visible !important; }
+            .print-record-page { break-before: page; page-break-before: always; }
+            .report-summary { break-after: page; page-break-after: always; }
             #bhumighor-print-report {
               display: block !important; position: absolute !important; left: 0 !important; top: 0 !important;
               width: 100% !important; color: #172b22 !important; background: #fff !important;
@@ -1630,65 +1652,55 @@ function App() {
         `}</style>
 
         {printRecord && (
-          <article id="bhumighor-print-report">
-            <header className="report-header">
-              <img src="/logo.png" alt="ভূমিঘর লোগো" className="report-logo" />
-              <h1>ভূমিঘর</h1>
-              <div>জমির তথ্যের প্রতিবেদন</div>
-            </header>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', marginBottom: '12px' }}>
-              <span>প্রতিবেদন তৈরির তারিখ: {new Date().toLocaleDateString('bn-BD')}</span>
-              <span>রেকর্ড: {printRecord.deed_number || 'দলিল নম্বর নেই'}</span>
-            </div>
-
-            <h2>জমির সম্পূর্ণ বিবরণ</h2>
-            <div className="report-grid">
-              {[
-                ['দলিল নম্বর', printRecord.deed_number],
-                ['দাতার নাম', printRecord.donor_name],
-                ['গ্রহীতার নাম', printRecord.recipient_name],
-                ['মৌজা', printRecord.mouza],
-                ['সীট নম্বর', printRecord.sheet_number],
-                ['দাগের ধরন', printRecord.dag_type],
-                ['দাগ নম্বর', printRecord.dag_number],
-                ['খতিয়ানের ধরন', printRecord.khatian_type],
-                ['খতিয়ান নম্বর', printRecord.khatian_number],
-                ['নামজারি কেস নম্বর', printRecord.mutation_case_number],
-                ['হোল্ডিং নম্বর', printRecord.holding_number],
-                ['মোট জমি', `${printRecord.total_land ?? '—'} ${printRecord.total_land_unit || 'শতক'}`],
-                ['ক্রয়/নিজস্ব জমি', `${printRecord.owned_land ?? '—'} ${printRecord.owned_land_unit || 'শতক'}`]
-              ].map(([label, value]) => (
-                <div className="report-field" key={label}>
-                  <span className="report-label">{label}</span>
-                  <span className="report-value">{value === null || value === undefined || value === '' ? '—' : value}</span>
-                </div>
-              ))}
-            </div>
-
-            <h2>সংযুক্ত কাগজপত্র ({(printRecord.land_record_files || []).length}টি)</h2>
-            {(printRecord.land_record_files || []).length === 0 ? (
-              <p>কোনো কাগজপত্র সংযুক্ত নেই।</p>
-            ) : (
-              <table className="report-files">
-                <thead><tr><th>ক্রমিক</th><th>কাগজপত্রের ধরন</th><th>ফাইলের নাম</th></tr></thead>
-                <tbody>
-                  {(printRecord.land_record_files || []).map((file, index) => (
-                    <tr key={file.id}><td>{(index + 1).toLocaleString('bn-BD')}</td><td>{file.category || 'অন্যান্য কাগজপত্র'}</td><td>{file.file_name}</td></tr>
-                  ))}
-                </tbody>
-              </table>
+          <>
+            {printRecord.length > 1 && (
+              <div id="bhumighor-print-report" className="report-summary">
+                <header className="report-header">
+                  <img src="/logo.png" alt="ভূমিঘর লোগো" className="report-logo" />
+                  <h1>ভূমিঘর</h1>
+                  <div>একাধিক জমির সম্মিলিত প্রতিবেদন</div>
+                </header>
+                <p>প্রতিবেদন তৈরির তারিখ: {new Date().toLocaleDateString('bn-BD')}</p>
+                <h2>সারসংক্ষেপ</h2>
+                <p>মোট নির্বাচিত জমির রেকর্ড: {printRecord.length.toLocaleString('bn-BD')} টি</p>
+                <p>মোট সংযুক্ত কাগজপত্র: {printRecord.reduce((sum, r) => sum + (r.land_record_files || []).length, 0).toLocaleString('bn-BD')} টি</p>
+                <table className="report-files"><thead><tr><th>ক্রমিক</th><th>দলিল নম্বর</th><th>মৌজা</th><th>মোট জমি</th><th>ক্রয়/নিজস্ব জমি</th></tr></thead>
+                  <tbody>{printRecord.map((r, i) => <tr key={r.id}><td>{(i + 1).toLocaleString('bn-BD')}</td><td>{r.deed_number || '—'}</td><td>{r.mouza || '—'}</td><td>{r.total_land ?? '—'} {r.total_land_unit || 'শতক'}</td><td>{r.owned_land ?? '—'} {r.owned_land_unit || 'শতক'}</td></tr>)}</tbody>
+                </table>
+              </div>
             )}
-
-            <div className="signature-row">
-              <div className="signature">তথ্য প্রদানকারীর স্বাক্ষর</div>
-              <div className="signature">যাচাইকারীর স্বাক্ষর</div>
-            </div>
-            <footer className="report-footer">
-              এই প্রতিবেদনটি ভূমিঘর অ্যাপে সংরক্ষিত ব্যবহারকারীর দেওয়া তথ্যের ভিত্তিতে তৈরি। এটি কোনো সরকারি খতিয়ান, দলিল বা প্রত্যয়িত নথির বিকল্প নয়।<br />
-              Developed by Muktar Graphics
-            </footer>
-          </article>
+            {printRecord.map((record, recordIndex) => (
+              <article id="bhumighor-print-report" className="print-record-page" key={record.id}>
+                <header className="report-header">
+                  <img src="/logo.png" alt="ভূমিঘর লোগো" className="report-logo" />
+                  <h1>ভূমিঘর</h1>
+                  <div>জমির তথ্যের প্রতিবেদন {printRecord.length > 1 ? `(${(recordIndex + 1).toLocaleString('bn-BD')} / ${printRecord.length.toLocaleString('bn-BD')})` : ''}</div>
+                </header>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', marginBottom: '12px' }}>
+                  <span>প্রতিবেদন তৈরির তারিখ: {new Date().toLocaleDateString('bn-BD')}</span>
+                  <span>রেকর্ড: {record.deed_number || 'দলিল নম্বর নেই'}</span>
+                </div>
+                <h2>জমির সম্পূর্ণ বিবরণ</h2>
+                <div className="report-grid">
+                  {[
+                    ['দলিল নম্বর', record.deed_number], ['দাতার নাম', record.donor_name], ['গ্রহীতার নাম', record.recipient_name],
+                    ['মৌজা', record.mouza], ['সীট নম্বর', record.sheet_number], ['দাগের ধরন', record.dag_type], ['দাগ নম্বর', record.dag_number],
+                    ['খতিয়ানের ধরন', record.khatian_type], ['খতিয়ান নম্বর', record.khatian_number], ['নামজারি কেস নম্বর', record.mutation_case_number],
+                    ['হোল্ডিং নম্বর', record.holding_number], ['মোট জমি', `${record.total_land ?? '—'} ${record.total_land_unit || 'শতক'}`],
+                    ['ক্রয়/নিজস্ব জমি', `${record.owned_land ?? '—'} ${record.owned_land_unit || 'শতক'}`]
+                  ].map(([label, value]) => <div className="report-field" key={label}><span className="report-label">{label}</span><span className="report-value">{value === null || value === undefined || value === '' ? '—' : value}</span></div>)}
+                </div>
+                <h2>সংযুক্ত কাগজপত্র ({(record.land_record_files || []).length}টি)</h2>
+                {(record.land_record_files || []).length === 0 ? <p>কোনো কাগজপত্র সংযুক্ত নেই।</p> : (
+                  <table className="report-files"><thead><tr><th>ক্রমিক</th><th>কাগজপত্রের ধরন</th><th>ফাইলের নাম</th></tr></thead>
+                    <tbody>{(record.land_record_files || []).map((file, index) => <tr key={file.id}><td>{(index + 1).toLocaleString('bn-BD')}</td><td>{file.category || 'অন্যান্য কাগজপত্র'}</td><td>{file.file_name}</td></tr>)}</tbody>
+                  </table>
+                )}
+                <div className="signature-row"><div className="signature">তথ্য প্রদানকারীর স্বাক্ষর</div><div className="signature">যাচাইকারীর স্বাক্ষর</div></div>
+                <footer className="report-footer">এই প্রতিবেদনটি ভূমিঘর অ্যাপে সংরক্ষিত ব্যবহারকারীর দেওয়া তথ্যের ভিত্তিতে তৈরি। এটি কোনো সরকারি খতিয়ান, দলিল বা প্রত্যয়িত নথির বিকল্প নয়।<br />Developed by Muktar Graphics</footer>
+              </article>
+            ))}
+          </>
         )}
 
         {filePreviewLoading && (
