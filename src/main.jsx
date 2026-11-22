@@ -1025,178 +1025,91 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div className="brand">
-          <img
-            src="/logo.png"
-            alt="ভূমিঘর"
-            className="topbar-logo"
-          />
-
-          <div>
-            <b>ভূমিঘর</b>
-            <small>BHUMIGHOR</small>
-          </div>
+    <div className="app-shell bh-app-shell">
+      <aside className="bh-sidebar">
+        <div className="bh-brand">
+          <img src="/logo.png" alt="ভূমিঘর" />
+          <strong>ভূমিঘর</strong>
+          <span>BHUMIGHOR</span>
+          <small>আপনার জমির তথ্য, এখন হাতের মুঠোয়</small>
         </div>
-
-        <div className="user-actions">
-          <span>{session.user.email}</span>
-
-          <button
-            className="ghost"
-            onClick={() => supabase.auth.signOut()}
-          >
-            <LogOut size={16} /> লগআউট
-          </button>
+        <nav className="bh-nav" aria-label="প্রধান মেনু">
+          <a className="active" href="#dashboard"><span>⌂</span> ড্যাশবোর্ড</a>
+          <a href="#records-section"><span>▦</span> জমির তথ্য</a>
+          <a href="#records-section"><span>▤</span> সংযুক্ত কাগজপত্র</a>
+          <a href="#records-section"><span>▣</span> সম্মিলিত PDF</a>
+          <a href="#records-section"><span>⇅</span> CSV Export/Import</a>
+          <a href="#records-section"><span>⌕</span> সার্চ ও ফিল্টার</a>
+          <a href="#records-section"><span>⚙</span> সেটিংস</a>
+          <button type="button" onClick={() => supabase.auth.signOut()}><span>⇥</span> লগআউট</button>
+        </nav>
+        <div className="bh-sidebar-bottom">
+          <div className="bh-landscape">🌳　🏡　🌳</div>
+          <strong>ভূমিঘর</strong>
+          <small>স্মার্ট ভূমি ব্যবস্থাপনার আধুনিক সমাধান</small>
+          <p>♥ Developed by<br />Muktar Graphics</p>
         </div>
-      </header>
+      </aside>
 
-      <main className="content">
-        <section className="welcome">
-          <div>
-            <p className="eyebrow">আপনার জমির ডিজিটাল নথিঘর</p>
-            <h1>জমির তথ্য সংরক্ষণ করুন</h1>
-            <p className="muted">
-              দলিল, খতিয়ান, নামজারি ও খাজনার কাগজ এক জায়গায় রাখুন।
-            </p>
+      <main className="content bh-content">
+        <header className="bh-topbar">
+          <div className="bh-user-welcome">
+            <span className="bh-wave">👋</span>
+            <div><h1>স্বাগতম!</h1><p>আপনার ভূমিঘর ড্যাশবোর্ডে আপনাকে স্বাগতম।</p></div>
           </div>
+          <div className="bh-user-pill"><span className="bh-avatar">👤</span><span>{session.user.email}</span><button type="button" onClick={() => supabase.auth.signOut()}>লগআউট ↗</button></div>
+        </header>
 
-          <img
-            src="/logo.png"
-            alt="ভূমিঘর"
-            className="welcome-logo"
-          />
+        <section className="bh-hero" id="dashboard">
+          <div><span>আপনার জমির ডিজিটাল নথিঘর</span><h2>আপনার সকল জমির তথ্য এক জায়গায়</h2><p>নিরাপদে সংরক্ষণ করুন, সহজে খুঁজে নিন এবং প্রয়োজনমতো রিপোর্ট তৈরি করুন।</p></div>
+          <img src="/logo.png" alt="ভূমিঘর লোগো" />
         </section>
 
-        <section style={{ margin: '22px 0 26px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '9px', marginBottom: '14px' }}>
-            <BarChart3 size={21} color="#17613d" />
-            <h2 style={{ margin: 0, color: '#174b34', fontSize: '21px' }}>জমির সারসংক্ষেপ</h2>
-          </div>
-
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
-            gap: '13px'
-          }}>
-            <div style={{ background: '#ffffff', border: '1px solid #e2e8df', borderRadius: '15px', padding: '17px', minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', marginBottom: '9px' }}>
-                <LandPlot size={19} color="#17613d" />
-                <span>মোট জমির রেকর্ড</span>
-              </div>
-              <strong style={{ display: 'block', fontSize: '27px', color: '#174b34' }}>{dashboardStats.recordCount.toLocaleString('bn-BD')}</strong>
-              <small style={{ color: '#64748b' }}>টি জমির তথ্য</small>
-            </div>
-
-            <div style={{ background: '#ffffff', border: '1px solid #e2e8df', borderRadius: '15px', padding: '17px', minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', marginBottom: '9px' }}>
-                <LandPlot size={19} color="#17613d" />
-                <span>মোট জমির পরিমাণ</span>
-              </div>
-              <strong style={{ display: 'block', fontSize: '18px', lineHeight: 1.7, color: '#174b34', overflowWrap: 'anywhere' }}>{dashboardStats.totalLand}</strong>
-            </div>
-
-            <div style={{ background: '#ffffff', border: '1px solid #e2e8df', borderRadius: '15px', padding: '17px', minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', marginBottom: '9px' }}>
-                <LandPlot size={19} color="#17613d" />
-                <span>ক্রয়/নিজস্ব জমি</span>
-              </div>
-              <strong style={{ display: 'block', fontSize: '18px', lineHeight: 1.7, color: '#174b34', overflowWrap: 'anywhere' }}>{dashboardStats.ownedLand}</strong>
-            </div>
-
-            <div style={{ background: '#ffffff', border: '1px solid #e2e8df', borderRadius: '15px', padding: '17px', minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', marginBottom: '9px' }}>
-                <Files size={19} color="#17613d" />
-                <span>সংযুক্ত কাগজপত্র</span>
-              </div>
-              <strong style={{ display: 'block', fontSize: '27px', color: '#174b34' }}>{dashboardStats.fileCount.toLocaleString('bn-BD')}</strong>
-              <small style={{ color: '#64748b' }}>টি ফাইল</small>
-            </div>
-
-            <div style={{ background: '#ffffff', border: '1px solid #e2e8df', borderRadius: '15px', padding: '17px', minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', marginBottom: '9px' }}>
-                <MapPin size={19} color="#17613d" />
-                <span>মোট মৌজা</span>
-              </div>
-              <strong style={{ display: 'block', fontSize: '27px', color: '#174b34' }}>{dashboardStats.mouzaCount.toLocaleString('bn-BD')}</strong>
-              <small style={{ color: '#64748b' }}>টি আলাদা মৌজা</small>
-            </div>
-          </div>
+        <section className="bh-stat-grid" aria-label="জমির সারসংক্ষেপ">
+          <article className="bh-stat bh-stat-blue"><span className="bh-stat-icon">▤</span><div><small>মোট রেকর্ড</small><strong>{dashboardStats.recordCount.toLocaleString('bn-BD')}</strong><small>টি জমির তথ্য</small></div></article>
+          <article className="bh-stat bh-stat-green"><span className="bh-stat-icon">🌾</span><div><small>মোট জমি</small><strong>{dashboardStats.totalLand}</strong><small>একক অনুযায়ী হিসাব</small></div></article>
+          <article className="bh-stat bh-stat-orange"><span className="bh-stat-icon">⌂</span><div><small>ক্রয়/নিজস্ব জমি</small><strong>{dashboardStats.ownedLand}</strong><small>একক অনুযায়ী হিসাব</small></div></article>
+          <article className="bh-stat bh-stat-purple"><span className="bh-stat-icon">▰</span><div><small>সংযুক্ত কাগজপত্র</small><strong>{dashboardStats.fileCount.toLocaleString('bn-BD')}</strong><small>টি ফাইল সংরক্ষিত</small></div></article>
         </section>
 
-        <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '15px', margin: '0 0 26px' }}>
-          <div style={{ background: '#fff', border: '1px solid #e2e8df', borderRadius: '16px', padding: '18px', minWidth: 0 }}>
-            <h3 style={{ margin: '0 0 6px', color: '#174b34', fontSize: '17px' }}>একক অনুযায়ী জমির পরিমাণ</h3>
-            <p style={{ margin: '0 0 16px', color: '#64748b', fontSize: '12px' }}>প্রতিটি এককের হিসাব আলাদাভাবে দেখানো হয়েছে</p>
-            {chartStats.landRows.length === 0 ? (
-              <p style={{ color: '#64748b', fontSize: '14px' }}>জমির পরিমাণের তথ্য পাওয়া যায়নি।</p>
-            ) : (
-              <div style={{ display: 'grid', gap: '15px' }}>
-                {chartStats.landRows.map(row => (
-                  <div key={row.unit}>
-                    <strong style={{ display: 'block', color: '#334155', fontSize: '13px', marginBottom: '7px' }}>{row.unit}</strong>
-                    <div style={{ display: 'grid', gap: '6px' }}>
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', color: '#64748b', fontSize: '11px', marginBottom: '3px' }}><span>মোট জমি</span><span>{row.total.toLocaleString('bn-BD', { maximumFractionDigits: 2 })} {row.unit}</span></div>
-                        <div style={{ height: '9px', background: '#edf2ed', borderRadius: '20px', overflow: 'hidden' }}><div style={{ height: '100%', width: `${Math.max(row.total, row.owned) ? Math.max(row.total > 0 ? 2 : 0, row.total / Math.max(row.total, row.owned) * 100) : 0}%`, background: '#17613d', borderRadius: '20px' }} /></div>
-                      </div>
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', color: '#64748b', fontSize: '11px', marginBottom: '3px' }}><span>ক্রয়/নিজস্ব</span><span>{row.owned.toLocaleString('bn-BD', { maximumFractionDigits: 2 })} {row.unit}</span></div>
-                        <div style={{ height: '9px', background: '#edf2ed', borderRadius: '20px', overflow: 'hidden' }}><div style={{ height: '100%', width: `${Math.max(row.total, row.owned) ? Math.max(row.owned > 0 ? 2 : 0, row.owned / Math.max(row.total, row.owned) * 100) : 0}%`, background: '#c49a3a', borderRadius: '20px' }} /></div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', marginTop: '17px', fontSize: '11px', color: '#64748b' }}>
-              <span><i style={{ display: 'inline-block', width: '9px', height: '9px', borderRadius: '3px', background: '#17613d', marginRight: '5px' }} />মোট জমি</span>
-              <span><i style={{ display: 'inline-block', width: '9px', height: '9px', borderRadius: '3px', background: '#c49a3a', marginRight: '5px' }} />ক্রয়/নিজস্ব</span>
+        <section className="bh-chart-grid">
+          <article className="bh-panel">
+            <h3><span>▥</span> জমির একক অনুযায়ী পরিসংখ্যান</h3>
+            <div className="bh-bar-chart">
+              {chartStats.landRows.length ? chartStats.landRows.map((row, index) => <div className="bh-bar-item" key={row.unit}><strong>{row.total.toLocaleString('bn-BD',{maximumFractionDigits:2})}</strong><div className="bh-bar-track"><i style={{height:`${Math.max(5, chartStats.maxLand ? row.total/chartStats.maxLand*100 : 0)}%`}} /></div><small>{row.unit}</small></div>) : <p className="bh-empty-chart">জমির পরিমাণের তথ্য পাওয়া যায়নি।</p>}
             </div>
-          </div>
+            <p className="bh-chart-note">প্রতিটি এককের হিসাব আলাদাভাবে দেখানো হয়েছে</p>
+          </article>
+          <article className="bh-panel">
+            <h3><span>◉</span> মৌজা অনুযায়ী জমির রেকর্ড</h3>
+            {chartStats.topMouzas.length ? <div className="bh-mouza-list">{chartStats.topMouzas.slice(0,4).map((item,index)=><div className="bh-mouza-row" key={item.name}><span className={`bh-dot dot-${index%4}`} /><div><strong>{item.name}</strong><small>{item.count.toLocaleString('bn-BD')} টি রেকর্ড</small></div><b>{chartStats.maxMouza ? Math.round(item.count/chartStats.maxMouza*100) : 0}%</b></div>)}</div> : <p className="bh-empty-chart">মৌজার তথ্য পাওয়া যায়নি।</p>}
+          </article>
+          <article className="bh-panel">
+            <h3><span>⌁</span> কাগজপত্রের ধরন অনুযায়ী</h3>
+            {chartStats.categories.length ? <div className="bh-category-list">{chartStats.categories.slice(0,5).map((item,index)=><div key={item.name}><div><span>{item.name}</span><b>{item.count.toLocaleString('bn-BD')} টি</b></div><i><em style={{width:`${chartStats.maxCategory ? item.count/chartStats.maxCategory*100 : 0}%`}} /></i></div>)}</div> : <p className="bh-empty-chart">কোনো কাগজপত্র সংযুক্ত নেই।</p>}
+          </article>
+        </section>
 
-          <div style={{ background: '#fff', border: '1px solid #e2e8df', borderRadius: '16px', padding: '18px', minWidth: 0 }}>
-            <h3 style={{ margin: '0 0 6px', color: '#174b34', fontSize: '17px' }}>মৌজা অনুযায়ী জমির রেকর্ড</h3>
-            <p style={{ margin: '0 0 16px', color: '#64748b', fontSize: '12px' }}>সর্বাধিক রেকর্ড থাকা ৫টি মৌজা</p>
-            {chartStats.topMouzas.length === 0 ? (
-              <p style={{ color: '#64748b', fontSize: '14px' }}>মৌজার তথ্য পাওয়া যায়নি।</p>
-            ) : (
-              <div style={{ display: 'grid', gap: '14px' }}>
-                {chartStats.topMouzas.map(item => (
-                  <div key={item.name}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '5px', fontSize: '13px' }}><strong style={{ color: '#334155', overflowWrap: 'anywhere' }}>{item.name}</strong><span style={{ color: '#64748b', whiteSpace: 'nowrap' }}>{item.count.toLocaleString('bn-BD')} টি</span></div>
-                    <div style={{ height: '11px', background: '#edf2ed', borderRadius: '20px', overflow: 'hidden' }}><div style={{ height: '100%', width: `${chartStats.maxMouza ? Math.max(2, item.count / chartStats.maxMouza * 100) : 0}%`, background: '#17613d', borderRadius: '20px' }} /></div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div style={{ background: '#fff', border: '1px solid #e2e8df', borderRadius: '16px', padding: '18px', minWidth: 0 }}>
-            <h3 style={{ margin: '0 0 6px', color: '#174b34', fontSize: '17px' }}>কাগজপত্রের ধরন অনুযায়ী</h3>
-            <p style={{ margin: '0 0 16px', color: '#64748b', fontSize: '12px' }}>আপনার সংরক্ষিত ফাইলের শ্রেণিবিভাগ</p>
-            {chartStats.categories.length === 0 ? (
-              <p style={{ color: '#64748b', fontSize: '14px' }}>কোনো সংযুক্ত কাগজপত্র পাওয়া যায়নি।</p>
-            ) : (
-              <div style={{ display: 'grid', gap: '13px' }}>
-                {chartStats.categories.map(item => (
-                  <div key={item.name}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '5px', fontSize: '13px' }}><strong style={{ color: '#334155', overflowWrap: 'anywhere' }}>{item.name}</strong><span style={{ color: '#64748b', whiteSpace: 'nowrap' }}>{item.count.toLocaleString('bn-BD')} টি</span></div>
-                    <div style={{ height: '10px', background: '#edf2ed', borderRadius: '20px', overflow: 'hidden' }}><div style={{ height: '100%', width: `${chartStats.maxCategory ? Math.max(2, item.count / chartStats.maxCategory * 100) : 0}%`, background: '#c49a3a', borderRadius: '20px' }} /></div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+        <section className="bh-lower-grid">
+          <article className="bh-panel bh-recent-panel">
+            <div className="bh-panel-heading"><h3><span>◷</span> সাম্প্রতিক জমির রেকর্ড</h3><a href="#records-section">সব দেখুন →</a></div>
+            {records.length ? <div className="bh-recent-table-wrap"><table className="bh-recent-table"><thead><tr><th>#</th><th>মৌজা</th><th>দাগ নং</th><th>খতিয়ান নং</th><th>মোট জমি</th><th>কাগজপত্র</th><th>দেখুন</th></tr></thead><tbody>{records.slice(0,5).map((r,index)=><tr key={r.id}><td>{(index+1).toLocaleString('bn-BD')}</td><td>{r.mouza || '—'}</td><td>{r.dag_number || '—'}</td><td>{r.khatian_number || '—'}</td><td>{r.total_land ?? '—'} {r.total_land_unit || 'শতক'}</td><td>{(r.land_record_files||[]).length.toLocaleString('bn-BD')} টি</td><td><button type="button" className="bh-view-btn" onClick={()=>setPreviewRecord(r)}>দেখুন</button></td></tr>)}</tbody></table></div> : <p className="bh-empty-chart">এখনো কোনো জমির তথ্য সংরক্ষণ করা হয়নি।</p>}
+          </article>
+          <article className="bh-panel bh-quick-panel">
+            <h3><span>⚡</span> দ্রুত কাজের সুবিধা</h3>
+            <div className="bh-quick-grid">
+              <button type="button" onClick={()=>{setForm({...emptyForm});setEditingRecord(null);setPendingFiles([]);setShowForm(true);document.getElementById('records-section')?.scrollIntoView({behavior:'smooth'})}}><b>＋</b>নতুন জমি যোগ করুন</button>
+              <button type="button" onClick={()=>{document.getElementById('land-search')?.focus();document.getElementById('records-section')?.scrollIntoView({behavior:'smooth'})}}><b>⌕</b>সার্চ করুন</button>
+              <button type="button" disabled={!records.length} onClick={()=>setPrintRecord(records)}><b>▣</b>সম্মিলিত PDF</button>
+              <button type="button" onClick={exportRecordsCsv} disabled={!records.length}><b>⇩</b>CSV Export</button>
+            </div>
+          </article>
         </section>
 
         {message && (
           <div className="notice">
             {message}
-            <button onClick={() => setMessage('')}>
-              <X size={15} />
-            </button>
+            <button onClick={() => setMessage('')}><X size={15} /></button>
           </div>
         )}
 
@@ -1204,6 +1117,7 @@ function App() {
           <div className="search">
             <Search size={18} />
             <input
+              id="land-search"
               value={query}
               onChange={e => setQuery(e.target.value)}
               placeholder="দলিল, মৌজা, নাম বা ফাইল দিয়ে খুঁজুন"
@@ -1465,7 +1379,7 @@ function App() {
           </form>
         )}
 
-        <section className="records">
+        <section className="records" id="records-section">
           <div className="section-title" style={{ flexWrap: 'wrap', gap: '10px' }}>
             <h2>সংরক্ষিত জমির তথ্য</h2>
             <span>{filtered.length} টি</span>
@@ -1876,6 +1790,24 @@ function App() {
           </div>
         )}
 
+        <style>{`
+          .bh-app-shell{display:grid!important;grid-template-columns:226px minmax(0,1fr)!important;min-height:100vh!important;background:#f3f7fb!important;align-items:stretch!important}
+          .bh-sidebar{background:linear-gradient(180deg,#08713e 0%,#005b38 72%,#064c30 100%);color:#fff;display:flex;flex-direction:column;min-height:100vh;position:sticky;top:0;height:100vh;overflow:auto;z-index:20}
+          .bh-brand{background:#fff;color:#12623d;text-align:center;padding:20px 14px 17px;display:flex;align-items:center;flex-direction:column;gap:3px}
+          .bh-brand img{width:82px;height:82px;object-fit:contain}.bh-brand strong{font-size:25px;line-height:1.2}.bh-brand span{font-size:12px;font-weight:800;letter-spacing:.5px}.bh-brand small{font-size:11px;color:#52645a;margin-top:8px;line-height:1.5}
+          .bh-nav{display:grid;gap:5px;padding:17px 11px}.bh-nav a,.bh-nav button{border:0;background:transparent;color:#effff5;text-decoration:none;text-align:left;display:flex;align-items:center;gap:12px;padding:12px 13px;border-radius:10px;font:600 14px inherit;cursor:pointer}.bh-nav a span,.bh-nav button span{font-size:21px;width:23px;text-align:center}.bh-nav a.active,.bh-nav a:hover,.bh-nav button:hover{background:#19a83d;color:#fff;box-shadow:0 5px 14px #003d2b55}
+          .bh-sidebar-bottom{margin-top:auto;text-align:center;padding:15px 12px 18px;background:linear-gradient(0deg,#06472d,#08713e)}.bh-landscape{font-size:25px;padding:10px 0}.bh-sidebar-bottom strong{display:block;font-size:19px}.bh-sidebar-bottom small{display:block;font-size:11px;line-height:1.5;margin:5px auto;max-width:170px}.bh-sidebar-bottom p{border-top:1px solid #ffffff30;padding-top:12px;font-size:11px;line-height:1.6;margin:12px 0 0}
+          .bh-content{width:100%;max-width:none!important;margin:0!important;padding:0 25px 22px!important;box-sizing:border-box;min-width:0}
+          .bh-topbar{min-height:95px;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 2px;background:linear-gradient(105deg,#e7f7eb,#f5fbff 58%,#e6f2e9);border-bottom:1px solid #d9e8df;margin:0 -25px 18px;padding-left:25px;padding-right:25px}
+          .bh-user-welcome{display:flex;align-items:center;gap:13px}.bh-wave{font-size:32px}.bh-user-welcome h1{font-size:24px;margin:0;color:#153d2b}.bh-user-welcome p{margin:4px 0 0;color:#557064;font-size:13px}.bh-user-pill{display:flex;align-items:center;gap:9px;background:#ffffffc9;border:1px solid #e1eae4;border-radius:30px;padding:7px 10px;font-size:12px;max-width:55%}.bh-user-pill>span:nth-child(2){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bh-avatar{width:32px;height:32px;border-radius:50%;background:#e5edf1;display:grid;place-items:center;font-size:20px}.bh-user-pill button{border:0;background:#e9f4ed;color:#17613d;border-radius:20px;padding:7px 10px;font-weight:700;cursor:pointer;white-space:nowrap}
+          .bh-hero{min-height:108px;border-radius:17px;padding:19px 24px;margin:0 0 17px;display:flex;align-items:center;justify-content:space-between;gap:12px;color:#fff;background:linear-gradient(100deg,#08713e,#159b4c 55%,#b5dcae);box-shadow:0 7px 18px #0b62301b;overflow:hidden}.bh-hero span{font-size:11px;opacity:.85}.bh-hero h2{font-size:22px;margin:5px 0}.bh-hero p{font-size:12px;margin:0;opacity:.9}.bh-hero img{width:82px;height:82px;object-fit:contain;background:#ffffffed;border-radius:50%;padding:7px}
+          .bh-stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:17px}.bh-stat{display:flex;align-items:center;gap:12px;min-width:0;padding:15px;border-radius:15px;border:1px solid #dce8ee;box-shadow:0 4px 12px #1d3b5010}.bh-stat>div{min-width:0}.bh-stat-icon{width:48px;height:48px;flex:0 0 48px;border-radius:50%;display:grid;place-items:center;font-size:24px;font-weight:800}.bh-stat small{display:block;color:#52616b;font-size:11px}.bh-stat strong{display:block;font-size:21px;line-height:1.5;color:#122f25;overflow-wrap:anywhere}.bh-stat-blue{background:#e5f2ff;border-color:#b8d9fb}.bh-stat-blue .bh-stat-icon{background:#1479e8;color:white}.bh-stat-green{background:#e5f8e8;border-color:#b6e8bd}.bh-stat-green .bh-stat-icon{background:#0b8b39;color:white}.bh-stat-orange{background:#fff1d8;border-color:#f5d39a}.bh-stat-orange .bh-stat-icon{background:#f28a0b;color:white}.bh-stat-purple{background:#f0e7ff;border-color:#d7c1ff}.bh-stat-purple .bh-stat-icon{background:#7738d7;color:white}
+          .bh-chart-grid{display:grid;grid-template-columns:1.1fr 1fr 1fr;gap:13px;margin-bottom:17px}.bh-panel{background:#fff;border:1px solid #dce6ee;border-radius:15px;overflow:hidden;box-shadow:0 4px 12px #193e5410;min-width:0}.bh-panel>h3,.bh-panel-heading{margin:0;padding:12px 15px;background:#08713e;color:#fff;font-size:15px;font-weight:800;display:flex;align-items:center;gap:9px}.bh-panel>h3 span,.bh-panel-heading h3 span{font-size:19px}.bh-bar-chart{height:180px;display:flex;align-items:stretch;justify-content:space-around;gap:10px;padding:18px 17px 0;border-bottom:1px solid #e5edf3;background:repeating-linear-gradient(to bottom,transparent 0,transparent 43px,#edf2f7 44px)}.bh-bar-item{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:5px}.bh-bar-item strong{font-size:11px;color:#253a32}.bh-bar-track{height:115px;width:min(48px,80%);display:flex;align-items:flex-end;background:#edf3f8;border-radius:7px 7px 0 0;overflow:hidden}.bh-bar-track i{width:100%;display:block;border-radius:7px 7px 0 0;background:linear-gradient(180deg,#2498f4,#0870d4)}.bh-bar-item:nth-child(2) .bh-bar-track i{background:linear-gradient(180deg,#62d83e,#1ba52d)}.bh-bar-item:nth-child(3) .bh-bar-track i{background:linear-gradient(180deg,#ffb53b,#f28a0b)}.bh-bar-item:nth-child(4) .bh-bar-track i{background:linear-gradient(180deg,#a76af3,#7738d7)}.bh-bar-item small{font-size:11px;padding:5px 0;color:#405249}.bh-chart-note{font-size:10px;color:#7b8b84;margin:8px 14px 12px}.bh-empty-chart{font-size:12px;color:#718178;padding:16px}.bh-mouza-list{padding:12px 14px;display:grid;gap:13px}.bh-mouza-row{display:flex;align-items:center;gap:9px}.bh-dot{width:12px;height:12px;border-radius:4px;flex:0 0 12px;background:#1686ec}.dot-1{background:#1caa42}.dot-2{background:#f49a17}.dot-3{background:#8850dc}.bh-mouza-row div{min-width:0;flex:1}.bh-mouza-row strong,.bh-mouza-row small{display:block;overflow-wrap:anywhere}.bh-mouza-row strong{font-size:12px;color:#263d32}.bh-mouza-row small{font-size:10px;color:#75837c;margin-top:3px}.bh-mouza-row>b{font-size:11px;color:#52645a}.bh-category-list{padding:13px 14px;display:grid;gap:14px}.bh-category-list>div>div{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#35483f;margin-bottom:5px}.bh-category-list>div>div span{overflow-wrap:anywhere}.bh-category-list>div>div b{white-space:nowrap}.bh-category-list i{display:block;height:8px;border-radius:20px;background:#edf2f5;overflow:hidden}.bh-category-list em{display:block;height:100%;background:linear-gradient(90deg,#13a44b,#66c84a);border-radius:20px}
+          .bh-lower-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(245px,.9fr);gap:13px;margin-bottom:20px}.bh-panel-heading{justify-content:space-between}.bh-panel-heading h3{font-size:15px;margin:0;display:flex;align-items:center;gap:8px}.bh-panel-heading a{font-size:11px;color:white;text-decoration:none;border:1px solid #ffffffa8;border-radius:8px;padding:6px 9px;white-space:nowrap}.bh-recent-table-wrap{overflow:auto;padding:10px}.bh-recent-table{border-collapse:collapse;width:100%;font-size:11px;white-space:nowrap}.bh-recent-table th{background:#f0f5fa;color:#34463e;font-weight:800}.bh-recent-table th,.bh-recent-table td{padding:9px 8px;border:1px solid #e0e9f0;text-align:left}.bh-recent-table td{color:#405148}.bh-view-btn{border:0;border-radius:7px;background:#e5f1ff;color:#0871d6;padding:5px 9px;font-size:10px;font-weight:700;cursor:pointer}.bh-quick-grid{padding:11px;display:grid;grid-template-columns:1fr 1fr;gap:8px}.bh-quick-grid button{min-height:82px;border:1px solid #cce7d3;border-radius:12px;background:#e8f9ed;color:#194c30;font-weight:700;font-size:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;cursor:pointer}.bh-quick-grid button:nth-child(2){background:#e8f3ff;border-color:#c5dcfb;color:#145a9d}.bh-quick-grid button:nth-child(3){background:#f2eaff;border-color:#dcc8ff;color:#6530a8}.bh-quick-grid button:nth-child(4){background:#e2fbf3;border-color:#b8edda;color:#08754b}.bh-quick-grid button:disabled{opacity:.45;cursor:not-allowed}.bh-quick-grid b{font-size:24px;line-height:1}
+          #records-section{scroll-margin-top:16px}.bh-content .toolbar{margin-top:18px}.bh-content .records{margin-top:18px}.bh-content .records>.section-title{border-bottom:1px solid #dce8df;padding-bottom:10px}.bh-content>footer{text-align:center;color:#718178;font-size:11px;padding:18px}
+          @media(max-width:1050px){.bh-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.bh-chart-grid{grid-template-columns:1fr 1fr}.bh-chart-grid .bh-panel:first-child{grid-column:span 2}}
+          @media(max-width:760px){.bh-app-shell{grid-template-columns:1fr!important}.bh-sidebar{position:relative;height:auto;min-height:0}.bh-brand{flex-direction:row;justify-content:flex-start;text-align:left;padding:9px 14px}.bh-brand img{width:45px;height:45px}.bh-brand strong{font-size:18px}.bh-brand span,.bh-brand small{display:none}.bh-nav{display:flex;overflow:auto;padding:7px;gap:6px}.bh-nav a,.bh-nav button{white-space:nowrap;padding:9px 11px;font-size:12px}.bh-nav a span,.bh-nav button span{font-size:16px;width:auto}.bh-sidebar-bottom{display:none}.bh-content{padding:0 12px 18px!important}.bh-topbar{margin:0 -12px 12px;padding:10px 12px;min-height:70px}.bh-user-welcome h1{font-size:18px}.bh-user-welcome p{font-size:10px}.bh-wave{font-size:23px}.bh-user-pill{max-width:48%;font-size:10px}.bh-user-pill button{display:none}.bh-hero{padding:14px}.bh-hero h2{font-size:17px}.bh-hero p{font-size:10px}.bh-hero img{width:58px;height:58px}.bh-stat-grid{gap:8px}.bh-stat{padding:10px;gap:8px}.bh-stat-icon{width:36px;height:36px;flex-basis:36px;font-size:18px}.bh-stat strong{font-size:15px}.bh-stat small{font-size:9px}.bh-chart-grid{grid-template-columns:1fr}.bh-chart-grid .bh-panel:first-child{grid-column:auto}.bh-lower-grid{grid-template-columns:1fr}.bh-panel>h3,.bh-panel-heading{font-size:13px}.bh-recent-table th,.bh-recent-table td{padding:7px 6px}}
+        `}</style>
         <footer>Developed by Muktar Graphics</footer>
       </main>
     </div>
