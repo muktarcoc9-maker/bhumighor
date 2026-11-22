@@ -1,5 +1,5 @@
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { supabase, STORAGE_BUCKET } from './supabase'
 import {
@@ -66,6 +66,28 @@ function parseLandAmount(value) {
   return number
 }
 
+// পৃথিবীর বক্রতা বিবেচনায় অক্ষাংশ/দ্রাঘিমাংশ থেকে বহুভুজের আনুমানিক আয়তন (m²)
+function calculatePolygonArea(points) {
+  if (!Array.isArray(points) || points.length < 3) return 0
+  const earthRadius = 6378137
+  let total = 0
+  for (let i = 0; i < points.length; i += 1) {
+    const current = points[i]
+    const next = points[(i + 1) % points.length]
+    const lat1 = Number(current?.[0]) * Math.PI / 180
+    const lat2 = Number(next?.[0]) * Math.PI / 180
+    const lon1 = Number(current?.[1]) * Math.PI / 180
+    const lon2 = Number(next?.[1]) * Math.PI / 180
+    if (![lat1, lat2, lon1, lon2].every(Number.isFinite)) return 0
+    total += (lon2 - lon1) * (2 + Math.sin(lat1) + Math.sin(lat2))
+  }
+  return Math.abs(total * earthRadius * earthRadius / 2)
+}
+
+function formatArea(value) {
+  return Number(value).toLocaleString('bn-BD', { maximumFractionDigits: 3 })
+}
+
 function App() {
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -91,6 +113,22 @@ function App() {
   const [printRecord, setPrintRecord] = useState(null)
   const [selectedRecordIds, setSelectedRecordIds] = useState([])
   const [importBusy, setImportBusy] = useState(false)
+  const [activePage, setActivePage] = useState('dashboard')
+  const [mapLayer, setMapLayer] = useState('satellite')
+  const [mapPoints, setMapPoints] = useState([])
+  const [mapStatus, setMapStatus] = useState('ম্যাপ প্রস্তুত হচ্ছে...')
+  const [mouzaMapFile, setMouzaMapFile] = useState(null)
+  const [selectedMapRecordId, setSelectedMapRecordId] = useState('')
+  const [savedMapFilePath, setSavedMapFilePath] = useState(null)
+  const [mapSaving, setMapSaving] = useState(false)
+  const [mapLoading, setMapLoading] = useState(false)
+  const [removeSavedMapFile, setRemoveSavedMapFile] = useState(false)
+  const mapContainerRef = useRef(null)
+  const leafletMapRef = useRef(null)
+  const mapLayerRef = useRef(null)
+  const mapLabelsLayerRef = useRef(null)
+  const parcelPolygonRef = useRef(null)
+  const parcelMarkersRef = useRef([])
 
   const [pendingFiles, setPendingFiles] = useState([])
   const [fileCategory, setFileCategory] = useState('জমির দলিল')
@@ -134,6 +172,124 @@ function App() {
       window.removeEventListener('afterprint', handleAfterPrint)
     }
   }, [printRecord])
+
+  useEffect(() => {
+    if (activePage !== 'map') return
+    let cancelled = false
+    const loadLeaflet = () => {
+      if (window.L) return Promise.resolve(window.L)
+      if (!document.querySelector('link[data-bhumighor-leaflet]')) {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+        link.dataset.bhumighorLeaflet = 'true'
+        document.head.appendChild(link)
+      }
+      return new Promise((resolve, reject) => {
+        const existing = document.querySelector('script[data-bhumighor-leaflet]')
+        if (existing) {
+          existing.addEventListener('load', () => resolve(window.L), { once: true })
+          existing.addEventListener('error', reject, { once: true })
+          if (window.L) resolve(window.L)
+          return
+        }
+        const script = document.createElement('script')
+        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+        script.dataset.bhumighorLeaflet = 'true'
+        script.onload = () => resolve(window.L)
+        script.onerror = reject
+        document.body.appendChild(script)
+      })
+    }
+    loadLeaflet().then(L => {
+      if (cancelled || !mapContainerRef.current || leafletMapRef.current) return
+      const map = L.map(mapContainerRef.current, {
+        zoomControl: true,
+        preferCanvas: true,
+        zoomSnap: 1,
+        wheelDebounceTime: 80
+      }).setView([24.0, 90.2], 7)
+      leafletMapRef.current = map
+      mapLayerRef.current = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles © Esri', maxNativeZoom: 19, maxZoom: 21,
+        updateWhenZooming: false, updateWhenIdle: true, keepBuffer: 3
+      }).addTo(map)
+      mapLabelsLayerRef.current = L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Labels © Esri', maxNativeZoom: 19, maxZoom: 21,
+        pane: 'overlayPane', opacity: 1, updateWhenZooming: false, updateWhenIdle: true, keepBuffer: 3
+      }).addTo(map)
+      window.setTimeout(() => { if (!cancelled && leafletMapRef.current === map) map.invalidateSize(true) }, 250)
+      map.on('click', event => setMapPoints(current => [...current, [event.latlng.lat, event.latlng.lng]]))
+      setMapStatus('ম্যাপ চালু হয়েছে। জমির সীমানার পয়েন্ট দিতে ম্যাপে ক্লিক করুন।')
+    }).catch(() => {
+      if (!cancelled) setMapStatus('ম্যাপ লোড করা যায়নি। ইন্টারনেট সংযোগ পরীক্ষা করে আবার চেষ্টা করুন।')
+    })
+    return () => {
+      cancelled = true
+      if (leafletMapRef.current) {
+        leafletMapRef.current.remove()
+        leafletMapRef.current = null
+        mapLayerRef.current = null
+        mapLabelsLayerRef.current = null
+        parcelPolygonRef.current = null
+        parcelMarkersRef.current = []
+      }
+    }
+  }, [activePage])
+
+  useEffect(() => {
+    const map = leafletMapRef.current
+    const L = window.L
+    if (!map || !L || activePage !== 'map') return
+    if (mapLayerRef.current) map.removeLayer(mapLayerRef.current)
+    if (mapLabelsLayerRef.current) {
+      map.removeLayer(mapLabelsLayerRef.current)
+      mapLabelsLayerRef.current = null
+    }
+    mapLayerRef.current = mapLayer === 'satellite'
+      ? L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+          attribution: 'Tiles © Esri', maxNativeZoom: 19, maxZoom: 21,
+          updateWhenZooming: false, updateWhenIdle: true, keepBuffer: 3
+        })
+      : L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© OpenStreetMap contributors', subdomains: 'abc',
+          maxNativeZoom: 19, maxZoom: 21,
+          updateWhenZooming: false, updateWhenIdle: true, keepBuffer: 3
+        })
+    mapLayerRef.current.addTo(map)
+    if (mapLayer === 'satellite') {
+      mapLabelsLayerRef.current = L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Labels © Esri', maxNativeZoom: 19, maxZoom: 21,
+        pane: 'overlayPane', opacity: 1, updateWhenZooming: false, updateWhenIdle: true, keepBuffer: 3
+      }).addTo(map)
+    }
+  }, [mapLayer, activePage])
+
+  useEffect(() => {
+    const map = leafletMapRef.current
+    const L = window.L
+    if (!map || !L || activePage !== 'map') return
+    parcelMarkersRef.current.forEach(marker => map.removeLayer(marker))
+    parcelMarkersRef.current = []
+    if (parcelPolygonRef.current) {
+      map.removeLayer(parcelPolygonRef.current)
+      parcelPolygonRef.current = null
+    }
+    mapPoints.forEach(point => parcelMarkersRef.current.push(
+      L.circleMarker(point, { radius: 6, color: '#fff', weight: 2, fillColor: '#08a045', fillOpacity: 1 }).addTo(map)
+    ))
+    if (mapPoints.length >= 3) {
+      parcelPolygonRef.current = L.polygon(mapPoints, { color: '#f5d90a', weight: 3, fillColor: '#20c45a', fillOpacity: 0.35 }).addTo(map)
+    }
+  }, [mapPoints, activePage])
+
+  useEffect(() => () => {
+    if (leafletMapRef.current) {
+      leafletMapRef.current.remove()
+      leafletMapRef.current = null
+    }
+    if (mouzaMapFile?.url && mouzaMapFile.localPreview) URL.revokeObjectURL(mouzaMapFile.url)
+  }, [])
 
   const csvColumns = [
     'deed_number', 'donor_name', 'recipient_name', 'mouza', 'sheet_number',
@@ -285,6 +441,85 @@ function App() {
       setRecords([])
     }
   }, [session?.user?.id])
+
+  useEffect(() => {
+    if (!records.length) {
+      setSelectedMapRecordId('')
+      return
+    }
+    if (!records.some(record => String(record.id) === String(selectedMapRecordId))) {
+      setSelectedMapRecordId(String(records[0].id))
+    }
+  }, [records, selectedMapRecordId])
+
+  useEffect(() => {
+    if (!session?.user?.id || !selectedMapRecordId) {
+      setMapPoints([])
+      setMouzaMapFile(current => {
+        if (current?.url && current.localPreview) URL.revokeObjectURL(current.url)
+        return null
+      })
+      setSavedMapFilePath(null)
+      setRemoveSavedMapFile(false)
+      return
+    }
+
+    let cancelled = false
+    async function loadSavedMap() {
+      setMapLoading(true)
+      setMapStatus('নির্বাচিত জমির সংরক্ষিত ম্যাপ খোঁজা হচ্ছে...')
+      setMapPoints([])
+      setMouzaMapFile(current => {
+        if (current?.url && current.localPreview) URL.revokeObjectURL(current.url)
+        return null
+      })
+      setSavedMapFilePath(null)
+      setRemoveSavedMapFile(false)
+
+      const { data, error } = await supabase
+        .from('land_record_maps')
+        .select('*')
+        .eq('land_record_id', selectedMapRecordId)
+        .eq('user_id', session.user.id)
+        .maybeSingle()
+
+      if (cancelled) return
+      if (error) {
+        setMapStatus('সংরক্ষিত ম্যাপ লোড করা যায়নি: ' + error.message)
+        setMapLoading(false)
+        return
+      }
+
+      if (data) {
+        setMapPoints(Array.isArray(data.map_points) ? data.map_points : [])
+        setSavedMapFilePath(data.map_file_path || null)
+        if (data.map_file_path) {
+          const { data: signed, error: signedError } = await supabase.storage
+            .from(STORAGE_BUCKET)
+            .createSignedUrl(data.map_file_path, 3600)
+          if (cancelled) return
+          if (signedError) {
+            setMapStatus('ম্যাপের নকশা লোড হয়নি: ' + signedError.message)
+          } else {
+            setMouzaMapFile({
+              url: signed.signedUrl,
+              type: data.map_file_type || '',
+              name: data.map_file_name || 'মৌজা নকশা',
+              remote: true
+            })
+          }
+        } else {
+          setMapStatus('আগের সীমানা লোড হয়েছে।')
+        }
+      } else {
+        setMapStatus('এই জমির জন্য এখনো কোনো ম্যাপ সংরক্ষণ করা হয়নি।')
+      }
+      setMapLoading(false)
+    }
+
+    loadSavedMap()
+    return () => { cancelled = true }
+  }, [session?.user?.id, selectedMapRecordId])
 
   async function handleAuth(e) {
     e.preventDefault()
@@ -564,6 +799,84 @@ function App() {
     setSaving(false)
   }
 
+  async function saveLandMap() {
+    if (!session?.user?.id || !selectedMapRecordId || mapSaving) return
+    setMapSaving(true)
+    setMapStatus('জমির ম্যাপ Supabase-এ সংরক্ষণ হচ্ছে...')
+
+    let nextFilePath = savedMapFilePath
+    let uploadedNewPath = null
+    const oldFilePath = savedMapFilePath
+
+    try {
+      if (mouzaMapFile?.file) {
+        const file = mouzaMapFile.file
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+        uploadedNewPath = `${session.user.id}/${selectedMapRecordId}/maps/${crypto.randomUUID()}-${safeName}`
+        const { error: uploadError } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .upload(uploadedNewPath, file, { upsert: false })
+        if (uploadError) throw uploadError
+        nextFilePath = uploadedNewPath
+      } else if (removeSavedMapFile) {
+        nextFilePath = null
+      }
+
+      const { error } = await supabase
+        .from('land_record_maps')
+        .upsert({
+          user_id: session.user.id,
+          land_record_id: selectedMapRecordId,
+          map_points: mapPoints,
+          map_file_path: nextFilePath,
+          map_file_name: nextFilePath
+            ? (mouzaMapFile?.file?.name || mouzaMapFile?.name || null)
+            : null,
+          map_file_type: nextFilePath
+            ? (mouzaMapFile?.file?.type || mouzaMapFile?.type || null)
+            : null,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'user_id,land_record_id' })
+
+      if (error) throw error
+
+      if (uploadedNewPath && oldFilePath && oldFilePath !== uploadedNewPath) {
+        await supabase.storage.from(STORAGE_BUCKET).remove([oldFilePath])
+      }
+      if (!nextFilePath && oldFilePath) {
+        await supabase.storage.from(STORAGE_BUCKET).remove([oldFilePath])
+      }
+
+      setSavedMapFilePath(nextFilePath)
+      setRemoveSavedMapFile(false)
+
+      if (mouzaMapFile?.file && nextFilePath) {
+        const { data: signed } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .createSignedUrl(nextFilePath, 3600)
+        if (signed?.signedUrl) {
+          const localUrl = mouzaMapFile.url
+          if (localUrl && mouzaMapFile.localPreview) URL.revokeObjectURL(localUrl)
+          setMouzaMapFile({
+            url: signed.signedUrl,
+            type: mouzaMapFile.file.type,
+            name: mouzaMapFile.file.name,
+            remote: true
+          })
+        }
+      }
+
+      setMapStatus('জমির সীমানা ও মৌজা/দাগের নকশা সফলভাবে Supabase-এ সংরক্ষিত হয়েছে।')
+    } catch (error) {
+      if (uploadedNewPath) {
+        await supabase.storage.from(STORAGE_BUCKET).remove([uploadedNewPath])
+      }
+      setMapStatus('ম্যাপ সংরক্ষণ করা যায়নি: ' + (error.message || 'অজানা সমস্যা'))
+    } finally {
+      setMapSaving(false)
+    }
+  }
+
   async function downloadFile(path) {
     const { data, error } = await supabase.storage
       .from(STORAGE_BUCKET)
@@ -767,6 +1080,20 @@ function App() {
 
     return { landRows, maxLand, topMouzas, maxMouza, categories, maxCategory }
   }, [records])
+
+
+  const measuredAreaSqm = useMemo(
+    () => calculatePolygonArea(mapPoints),
+    [mapPoints]
+  )
+  const measuredArea = useMemo(() => ({
+    sqm: measuredAreaSqm,
+    sqft: measuredAreaSqm * 10.7639104167,
+    shotok: measuredAreaSqm / 40.468564224,
+    katha: measuredAreaSqm / 66.89027712,
+    bigha: measuredAreaSqm / 1337.8055424,
+    acre: measuredAreaSqm / 4046.8564224
+  }), [measuredAreaSqm])
 
   if (loading) {
     return <div className="center">লোড হচ্ছে...</div>
@@ -1034,7 +1361,8 @@ function App() {
           <small>আপনার জমির তথ্য, এখন হাতের মুঠোয়</small>
         </div>
         <nav className="bh-nav" aria-label="প্রধান মেনু">
-          <a className="active" href="#dashboard"><span>⌂</span> ড্যাশবোর্ড</a>
+          <a className={activePage === 'dashboard' ? 'active' : ''} href="#dashboard" onClick={() => setActivePage('dashboard')}><span>⌂</span> ড্যাশবোর্ড</a>
+          <a className={activePage === 'map' ? 'active' : ''} href="#land-map" onClick={event => { event.preventDefault(); setActivePage('map'); setMapStatus('ম্যাপ প্রস্তুত হচ্ছে...') }}><span>⌖</span> জমির ম্যাপ</a>
           <a href="#records-section"><span>▦</span> জমির তথ্য</a>
           <a href="#records-section"><span>▤</span> সংযুক্ত কাগজপত্র</a>
           <a href="#records-section"><span>▣</span> সম্মিলিত PDF</a>
@@ -1060,6 +1388,125 @@ function App() {
           <div className="bh-user-pill"><span className="bh-avatar">👤</span><span>{session.user.email}</span><button type="button" onClick={() => supabase.auth.signOut()}>লগআউট ↗</button></div>
         </header>
 
+        {activePage === 'map' ? (
+          <section className="bh-map-page" id="land-map">
+            <div className="bh-map-hero">
+              <div><span>ভূমিঘর · উন্নত ফিচার</span><h2>জমির ম্যাপ</h2><p>স্যাটেলাইট ম্যাপে জমির অবস্থান দেখুন এবং মৌজা/দাগের নকশা সংযুক্ত করুন।</p></div>
+              <MapPin size={42} />
+            </div>
+            <div className="bh-map-toolbar">
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontWeight: 700 }}>
+                জমির রেকর্ড নির্বাচন
+                <select
+                  value={selectedMapRecordId}
+                  onChange={event => setSelectedMapRecordId(event.target.value)}
+                  disabled={!records.length || mapLoading || mapSaving}
+                  style={{ minWidth: '220px', maxWidth: '100%', padding: '9px', border: '1px solid #cbd5e1', borderRadius: '8px' }}
+                >
+                  {!records.length && <option value="">আগে জমির রেকর্ড যোগ করুন</option>}
+                  {records.map(record => (
+                    <option key={record.id} value={String(record.id)}>
+                      {[record.mouza, record.dag_number ? `দাগ ${record.dag_number}` : '', record.deed_number ? `দলিল ${record.deed_number}` : ''].filter(Boolean).join(' · ') || 'নামবিহীন জমির রেকর্ড'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button className={mapLayer === 'satellite' ? 'selected' : ''} onClick={() => setMapLayer('satellite')} type="button">স্যাটেলাইট ম্যাপ</button>
+              <button className={mapLayer === 'street' ? 'selected' : ''} onClick={() => setMapLayer('street')} type="button">সাধারণ ম্যাপ</button>
+              <button type="button" className="bh-map-gps" onClick={() => {
+                if (!navigator.geolocation) { setMapStatus('এই ব্রাউজারে GPS সুবিধা নেই।'); return }
+                setMapStatus('আপনার অবস্থান খোঁজা হচ্ছে...')
+                navigator.geolocation.getCurrentPosition(position => {
+                  const map = leafletMapRef.current
+                  if (map && window.L) {
+                    const point = [position.coords.latitude, position.coords.longitude]
+                    map.setView(point, 17)
+                    window.L.marker(point).addTo(map).bindPopup('আপনার বর্তমান অবস্থান').openPopup()
+                    setMapStatus('GPS অবস্থান পাওয়া গেছে।')
+                  }
+                }, error => setMapStatus('GPS পাওয়া যায়নি: ' + error.message), { enableHighAccuracy: true, timeout: 12000 })
+              }}>◎ GPS লোকেশন</button>
+            </div>
+            <div className="bh-map-layout">
+              <div className="bh-map-card">
+                <div ref={mapContainerRef} className="bh-leaflet-map" />
+                <div className="bh-map-help">ম্যাপে ক্লিক করে সীমানার পয়েন্ট দিন। ৩টি বা তার বেশি পয়েন্ট দিলে জমির সীমানা দেখা যাবে।</div>
+                <div className="bh-map-actions">
+                  <button type="button" onClick={() => setMapPoints([])}>সীমানা মুছুন</button>
+                  <button type="button" onClick={() => {
+                    const map = leafletMapRef.current
+                    if (map && mapPoints.length) map.fitBounds(mapPoints, { padding: [30, 30] })
+                  }}>সীমানা দেখুন</button>
+                </div>
+              </div>
+              <aside className="bh-map-side">
+                <h3>মৌজা ও দাগের নকশা</h3>
+                <p>আপনার কাছে থাকা মৌজা/দাগের নকশার ছবি বা PDF এখানে নির্বাচন করে দেখতে পারবেন।</p>
+                <label className="bh-map-upload">
+                  <Upload size={18}/> নকশা আপলোড করুন
+                  <input type="file" accept="image/*,.pdf,application/pdf" onChange={event => {
+                    const file = event.target.files?.[0]
+                    if (!file) return
+                    const valid = ['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)
+                    if (!valid) {
+                      setMapStatus('শুধু PDF, JPG ও PNG নকশা আপলোড করা যাবে।')
+                      event.target.value = ''
+                      return
+                    }
+                    if (file.size > 50 * 1024 * 1024) {
+                      setMapStatus('নকশার ফাইল ৫০ MB-এর বেশি হতে পারবে না।')
+                      event.target.value = ''
+                      return
+                    }
+                    if (mouzaMapFile?.url && mouzaMapFile.localPreview) URL.revokeObjectURL(mouzaMapFile.url)
+                    setMouzaMapFile({ file, name: file.name, url: URL.createObjectURL(file), type: file.type, localPreview: true })
+                    setRemoveSavedMapFile(false)
+                    event.target.value = ''
+                  }}/>
+                </label>
+                {mouzaMapFile ? (
+                  <div className="bh-mouza-preview">
+                    <strong>{mouzaMapFile.name || mouzaMapFile.file?.name || 'মৌজা নকশা'}</strong>
+                    {mouzaMapFile.type === 'application/pdf'
+                      ? <a href={mouzaMapFile.url} target="_blank" rel="noreferrer">PDF নকশা খুলুন</a>
+                      : <a href={mouzaMapFile.url} target="_blank" rel="noreferrer"><img src={mouzaMapFile.url} alt="মৌজা নকশার প্রিভিউ"/></a>}
+                    <button type="button" onClick={() => {
+                      if (mouzaMapFile.url && mouzaMapFile.localPreview) URL.revokeObjectURL(mouzaMapFile.url)
+                      setMouzaMapFile(null)
+                      setRemoveSavedMapFile(true)
+                    }}>নকশা সরান</button>
+                  </div>
+                ) : <div className="bh-map-empty">এখনো কোনো নকশা নির্বাচন করা হয়নি।</div>}
+                <div className="bh-map-info"><strong>সীমানার পয়েন্ট</strong><b>{mapPoints.length.toLocaleString('bn-BD')} টি</b><small>নির্বাচিত জমির ম্যাপ</small></div>
+                <div style={{ marginTop: '14px', padding: '15px', border: '1px solid #bbf7d0', borderRadius: '12px', background: '#f0fdf4' }}>
+                  <h3 style={{ margin: '0 0 8px', color: '#166534', fontSize: '16px' }}>জমির পরিমাণ (আনুমানিক)</h3>
+                  {mapPoints.length >= 3 ? (
+                    <>
+                      <div style={{ fontSize: '24px', fontWeight: 800, color: '#14532d', marginBottom: '8px' }}>{formatArea(measuredArea.shotok)} শতক</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '13px' }}>
+                        <div><strong>{formatArea(measuredArea.sqm)}</strong><br/>বর্গমিটার</div>
+                        <div><strong>{formatArea(measuredArea.sqft)}</strong><br/>বর্গফুট</div>
+                        <div><strong>{formatArea(measuredArea.katha)}</strong><br/>কাঠা</div>
+                        <div><strong>{formatArea(measuredArea.bigha)}</strong><br/>বিঘা</div>
+                        <div><strong>{formatArea(measuredArea.acre)}</strong><br/>একর</div>
+                      </div>
+                    </>
+                  ) : (
+                    <p style={{ margin: 0, color: '#64748b', fontSize: '13px' }}>আয়তন হিসাব করতে ম্যাপে কমপক্ষে ৩টি সীমানার পয়েন্ট দিন।</p>
+                  )}
+                  <small style={{ display: 'block', marginTop: '10px', color: '#64748b', lineHeight: 1.5 }}>
+                    হিসাবটি আঁকা সীমানার ভিত্তিতে আনুমানিক। কাঠা ও বিঘার রূপান্তরে প্রচলিত বাংলাদেশি মান (১ কাঠা = ৭২০ বর্গফুট, ১ বিঘা = ২০ কাঠা) ব্যবহার করা হয়েছে।
+                  </small>
+                </div>
+                <button type="button" className="primary" onClick={saveLandMap} disabled={!selectedMapRecordId || mapSaving || mapLoading}>
+                  {mapSaving ? 'সংরক্ষণ হচ্ছে...' : 'ম্যাপ সংরক্ষণ করুন'}
+                </button>
+              </aside>
+            </div>
+            <div className="bh-map-status"><span>●</span>{mapStatus}</div>
+            <p className="bh-map-disclaimer">দ্রষ্টব্য: ম্যাপ সংরক্ষণ করতে একটি জমির রেকর্ড নির্বাচন করে “ম্যাপ সংরক্ষণ করুন” চাপুন। সরকারি দাগের সঠিক সীমানা নিশ্চিত করতে নির্ভরযোগ্য/সরকারি মৌজা নকশা প্রয়োজন।</p>
+          </section>
+        ) : <>
         <section className="bh-hero" id="dashboard">
           <div><span>আপনার জমির ডিজিটাল নথিঘর</span><h2>আপনার সকল জমির তথ্য এক জায়গায়</h2><p>নিরাপদে সংরক্ষণ করুন, সহজে খুঁজে নিন এবং প্রয়োজনমতো রিপোর্ট তৈরি করুন।</p></div>
           <img src="/logo.png" alt="ভূমিঘর লোগো" />
@@ -1672,7 +2119,10 @@ function App() {
           </div>
         )}
 
+        </>}
         <style>{`
+          .bh-map-page{margin:0 0 22px}.bh-map-hero{display:flex;justify-content:space-between;align-items:center;padding:22px 25px;border-radius:16px;background:linear-gradient(110deg,#08743b,#16a34a);color:#fff;margin-bottom:14px}.bh-map-hero span{font-size:12px;opacity:.85}.bh-map-hero h2{margin:5px 0;font-size:26px}.bh-map-hero p{margin:0;font-size:13px}.bh-map-toolbar{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:13px}.bh-map-toolbar button,.bh-map-actions button{border:1px solid #cbded1;border-radius:9px;background:#fff;padding:10px 15px;color:#20543a;font-weight:700;cursor:pointer}.bh-map-toolbar button.selected,.bh-map-toolbar .bh-map-gps{background:#087b40;color:#fff;border-color:#087b40}.bh-map-layout{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(250px,.8fr);gap:14px}.bh-map-card,.bh-map-side{background:#fff;border:1px solid #dce9df;border-radius:14px;overflow:hidden;box-shadow:0 4px 16px #163d1d0a}.bh-leaflet-map{height:510px;width:100%;background:#e8f0e9;z-index:1}.bh-map-help{padding:10px 13px;background:#f3faf5;color:#52645a;font-size:12px}.bh-map-actions{display:flex;gap:8px;padding:10px}.bh-map-side h3{margin:0;padding:15px;background:#08743b;color:white;font-size:16px}.bh-map-side>p{font-size:12px;color:#66756c;padding:0 14px;line-height:1.7}.bh-map-upload{margin:10px 14px;padding:13px;border:1px dashed #14934c;border-radius:10px;background:#f0faf3;color:#08743b;display:flex;align-items:center;justify-content:center;gap:8px;font-weight:700;cursor:pointer}.bh-map-upload input{display:none}.bh-map-empty,.bh-map-info{margin:12px 14px;padding:14px;border-radius:10px;background:#f5f8f6;color:#68766e;font-size:12px}.bh-map-info{display:grid;gap:5px;color:#345343}.bh-map-info b{font-size:22px;color:#08743b}.bh-map-info small{color:#77847c}.bh-mouza-preview{margin:12px 14px;display:grid;gap:9px;font-size:12px;overflow-wrap:anywhere}.bh-mouza-preview img{width:100%;max-height:300px;object-fit:contain;background:#f3f5f4;border:1px solid #e0e7e2;border-radius:8px}.bh-mouza-preview button{justify-self:start;border:0;background:#fff0f0;color:#b42318;border-radius:7px;padding:7px 10px;cursor:pointer}.bh-map-status{margin-top:13px;padding:12px 15px;border-radius:10px;background:#eaf8ee;color:#245b37;font-size:12px}.bh-map-status span{color:#0b9b4b;margin-right:8px}.bh-map-disclaimer{font-size:11px;color:#758178;line-height:1.7;margin:10px 2px}@media(max-width:850px){.bh-map-layout{grid-template-columns:1fr}.bh-leaflet-map{height:390px}}@media(max-width:560px){.bh-map-hero{padding:16px}.bh-map-hero h2{font-size:21px}.bh-leaflet-map{height:340px}}
+
           #bhumighor-print-report, .report-summary { display: none; }
           @media print {
             @page { size: A4; margin: 16mm; }
