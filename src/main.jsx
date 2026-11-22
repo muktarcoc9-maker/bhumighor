@@ -90,6 +90,7 @@ function App() {
   const [filePreviewLoading, setFilePreviewLoading] = useState(false)
   const [printRecord, setPrintRecord] = useState(null)
   const [selectedRecordIds, setSelectedRecordIds] = useState([])
+  const [importBusy, setImportBusy] = useState(false)
 
   const [pendingFiles, setPendingFiles] = useState([])
   const [fileCategory, setFileCategory] = useState('জমির দলিল')
@@ -133,6 +134,134 @@ function App() {
       window.removeEventListener('afterprint', handleAfterPrint)
     }
   }, [printRecord])
+
+  const csvColumns = [
+    'deed_number', 'donor_name', 'recipient_name', 'mouza', 'sheet_number',
+    'dag_type', 'dag_number', 'khatian_type', 'khatian_number',
+    'mutation_case_number', 'holding_number', 'total_land', 'owned_land',
+    'total_land_unit', 'owned_land_unit'
+  ]
+
+  function csvCell(value) {
+    const text = value === null || value === undefined ? '' : String(value)
+    return `"${text.replace(/"/g, '""')}"`
+  }
+
+  function exportRecordsCsv() {
+    if (!records.length) {
+      setMessage('এক্সপোর্ট করার মতো কোনো জমির তথ্য নেই।')
+      return
+    }
+
+    const rows = [csvColumns, ...records.map(record => csvColumns.map(key => record[key] ?? ''))]
+    const csv = '\uFEFF' + rows.map(row => row.map(csvCell).join(',')).join('\r\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `bhumighor-land-records-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+    setMessage(`${records.length}টি জমির তথ্য CSV ফাইলে এক্সপোর্ট হয়েছে। Excel-এ ফাইলটি খোলা যাবে।`)
+  }
+
+  function parseCsv(text) {
+    const rows = []
+    let row = []
+    let cell = ''
+    let quoted = false
+
+    for (let i = 0; i < text.length; i += 1) {
+      const char = text[i]
+      if (quoted) {
+        if (char === '"' && text[i + 1] === '"') {
+          cell += '"'
+          i += 1
+        } else if (char === '"') {
+          quoted = false
+        } else {
+          cell += char
+        }
+      } else if (char === '"') {
+        quoted = true
+      } else if (char === ',') {
+        row.push(cell)
+        cell = ''
+      } else if (char === '\n') {
+        row.push(cell.replace(/\r$/, ''))
+        if (row.some(value => value.trim() !== '')) rows.push(row)
+        row = []
+        cell = ''
+      } else {
+        cell += char
+      }
+    }
+
+    row.push(cell.replace(/\r$/, ''))
+    if (row.some(value => value.trim() !== '')) rows.push(row)
+    return rows
+  }
+
+  async function importRecordsCsv(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      setMessage('অনুগ্রহ করে ভূমিঘর থেকে Export করা CSV ফাইল নির্বাচন করুন।')
+      return
+    }
+
+    setImportBusy(true)
+    setMessage('')
+
+    try {
+      const content = (await file.text()).replace(/^\uFEFF/, '')
+      const rows = parseCsv(content)
+      if (rows.length < 2) throw new Error('ফাইলে আমদানি করার মতো কোনো তথ্য নেই।')
+
+      const headers = rows[0].map(value => value.trim())
+      const missing = csvColumns.filter(column => !headers.includes(column))
+      if (missing.length) {
+        throw new Error('এই CSV ফাইলটি ভূমিঘরের Export করা ফাইল নয় অথবা প্রয়োজনীয় কলাম নেই।')
+      }
+
+      const imported = rows.slice(1).map((values, index) => {
+        const item = {}
+        csvColumns.forEach(column => {
+          const value = values[headers.indexOf(column)] ?? ''
+          item[column] = value.trim()
+        })
+        item.total_land = item.total_land === '' ? null : parseLandAmount(item.total_land)
+        item.owned_land = item.owned_land === '' ? null : parseLandAmount(item.owned_land)
+        if ((item.total_land !== null && !Number.isFinite(item.total_land)) ||
+            (item.owned_land !== null && !Number.isFinite(item.owned_land))) {
+          throw new Error(`CSV ফাইলের ${index + 2} নম্বর সারিতে জমির পরিমাণ ভুল আছে।`)
+        }
+        if (!landUnits.includes(item.total_land_unit)) item.total_land_unit = 'শতক'
+        if (!landUnits.includes(item.owned_land_unit)) item.owned_land_unit = 'শতক'
+        item.user_id = session.user.id
+        item.file_path = null
+        return item
+      }).filter(item => csvColumns.some(column => String(item[column] ?? '').trim() !== ''))
+
+      if (!imported.length) throw new Error('ফাইলে কোনো বৈধ জমির তথ্য পাওয়া যায়নি।')
+
+      for (let i = 0; i < imported.length; i += 50) {
+        const { error } = await supabase.from('land_records').insert(imported.slice(i, i + 50))
+        if (error) throw error
+      }
+
+      await loadRecords()
+      setMessage(`সফলভাবে ${imported.length}টি জমির তথ্য Import হয়েছে। সংযুক্ত PDF/ছবি ফাইলগুলো আলাদাভাবে আপলোড করতে হবে।`)
+    } catch (error) {
+      setMessage('Import করা যায়নি: ' + (error.message || 'অজানা সমস্যা'))
+    } finally {
+      setImportBusy(false)
+    }
+  }
 
   async function loadRecords() {
     if (!session?.user) return
@@ -1337,9 +1466,19 @@ function App() {
         )}
 
         <section className="records">
-          <div className="section-title">
+          <div className="section-title" style={{ flexWrap: 'wrap', gap: '10px' }}>
             <h2>সংরক্ষিত জমির তথ্য</h2>
             <span>{filtered.length} টি</span>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', margin: '0 0 14px', padding: '12px', border: '1px solid #d5e4da', borderRadius: '10px', background: '#f5faf6' }}>
+            <button type="button" className="primary" onClick={exportRecordsCsv} disabled={!records.length}>
+              <Download size={16} /> Excel/CSV Export
+            </button>
+            <button type="button" className="ghost" onClick={() => document.getElementById('bhumighor-csv-import')?.click()} disabled={importBusy}>
+              <Upload size={16} /> {importBusy ? 'Import হচ্ছে...' : 'CSV Import'}
+            </button>
+            <input id="bhumighor-csv-import" type="file" accept=".csv,text/csv" onChange={importRecordsCsv} style={{ display: 'none' }} />
+            <small style={{ alignSelf: 'center', color: '#52645a' }}>Excel-এ খোলা যায় এমন CSV ফরম্যাট। Import করলে নতুন রেকর্ড যুক্ত হবে; আগের তথ্য মুছবে না।</small>
           </div>
           {filtered.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px', padding: '12px', marginBottom: '14px', border: '1px solid #d5e4da', borderRadius: '10px', background: '#f5faf6' }}>
