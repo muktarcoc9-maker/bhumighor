@@ -5,7 +5,7 @@ import { supabase, STORAGE_BUCKET } from './supabase'
 import {
   Plus, Search, LogOut, FileText, Trash2, Download, X,
   ShieldCheck, Pencil, Upload, FolderOpen, Eye, EyeOff,
-  BarChart3, MapPin, Files, LandPlot
+  BarChart3, MapPin, Files, LandPlot, Printer
 } from 'lucide-react'
 import './style.css'
 
@@ -88,6 +88,7 @@ function App() {
   const [previewRecord, setPreviewRecord] = useState(null)
   const [filePreview, setFilePreview] = useState(null)
   const [filePreviewLoading, setFilePreviewLoading] = useState(false)
+  const [printRecord, setPrintRecord] = useState(null)
 
   const [pendingFiles, setPendingFiles] = useState([])
   const [fileCategory, setFileCategory] = useState('জমির দলিল')
@@ -118,6 +119,19 @@ function App() {
       listener.subscription.unsubscribe()
     }
   }, [])
+
+  useEffect(() => {
+    if (!printRecord) return
+
+    const timer = window.setTimeout(() => window.print(), 350)
+    const handleAfterPrint = () => setPrintRecord(null)
+    window.addEventListener('afterprint', handleAfterPrint)
+
+    return () => {
+      window.clearTimeout(timer)
+      window.removeEventListener('afterprint', handleAfterPrint)
+    }
+  }, [printRecord])
 
   async function loadRecords() {
     if (!session?.user) return
@@ -1454,6 +1468,32 @@ function App() {
                         <Trash2 size={16} /> মুছুন
                       </button>
                     </div>
+
+                    <div style={{ marginTop: '10px', width: '100%' }}>
+                      <button
+                        type="button"
+                        onClick={() => setPrintRecord(r)}
+                        aria-label="জমির তথ্য PDF তৈরি বা প্রিন্ট করুন"
+                        style={{
+                          width: '100%',
+                          minHeight: '42px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px',
+                          padding: '10px 14px',
+                          border: '1px solid #17613d',
+                          borderRadius: '9px',
+                          background: '#17613d',
+                          color: '#ffffff',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          boxSizing: 'border-box'
+                        }}
+                      >
+                        <Printer size={17} /> PDF তৈরি / প্রিন্ট
+                      </button>
+                    </div>
                   </article>
                 )
               })}
@@ -1549,11 +1589,106 @@ function App() {
                 )}
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '18px' }}>
-                <button type="button" className="primary" onClick={() => setPreviewRecord(null)}>বন্ধ করুন</button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', marginTop: '18px' }}>
+                <button type="button" className="primary" onClick={() => setPrintRecord(previewRecord)}>
+                  <Printer size={16} /> PDF তৈরি / প্রিন্ট
+                </button>
+                <button type="button" className="ghost" onClick={() => setPreviewRecord(null)}>বন্ধ করুন</button>
               </div>
             </section>
           </div>
+        )}
+
+        <style>{`
+          #bhumighor-print-report { display: none; }
+          @media print {
+            @page { size: A4; margin: 16mm; }
+            html, body, #root { background: #fff !important; min-height: 0 !important; }
+            body * { visibility: hidden !important; }
+            #bhumighor-print-report, #bhumighor-print-report * { visibility: visible !important; }
+            #bhumighor-print-report {
+              display: block !important; position: absolute !important; left: 0 !important; top: 0 !important;
+              width: 100% !important; color: #172b22 !important; background: #fff !important;
+              font-family: "Noto Sans Bengali", "SolaimanLipi", Arial, sans-serif !important;
+              font-size: 12px !important; line-height: 1.65 !important;
+            }
+            #bhumighor-print-report .report-header { text-align: center; border-bottom: 2px solid #17613d; padding-bottom: 12px; margin-bottom: 16px; }
+            #bhumighor-print-report .report-logo { width: 76px; height: 76px; object-fit: contain; margin: 0 auto 6px; }
+            #bhumighor-print-report h1 { color: #17613d !important; font-size: 24px !important; margin: 0; }
+            #bhumighor-print-report h2 { color: #17613d !important; font-size: 16px !important; margin: 18px 0 8px; }
+            #bhumighor-print-report .report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 16px; }
+            #bhumighor-print-report .report-field { border-bottom: 1px solid #d9e3dc; padding: 5px 0; break-inside: avoid; }
+            #bhumighor-print-report .report-label { display: block; color: #52645a !important; font-size: 10px !important; }
+            #bhumighor-print-report .report-value { display: block; font-weight: 600; overflow-wrap: anywhere; }
+            #bhumighor-print-report .report-files { width: 100%; border-collapse: collapse; }
+            #bhumighor-print-report .report-files th, #bhumighor-print-report .report-files td { border: 1px solid #cbd5ce; padding: 6px; text-align: left; }
+            #bhumighor-print-report .report-files th { background: #eef4ef !important; }
+            #bhumighor-print-report .report-footer { margin-top: 28px; padding-top: 10px; border-top: 1px solid #d9e3dc; font-size: 10px !important; text-align: center; }
+            #bhumighor-print-report .signature-row { display: flex; justify-content: space-between; gap: 35px; margin-top: 48px; }
+            #bhumighor-print-report .signature { width: 42%; border-top: 1px solid #64748b; text-align: center; padding-top: 5px; }
+          }
+        `}</style>
+
+        {printRecord && (
+          <article id="bhumighor-print-report">
+            <header className="report-header">
+              <img src="/logo.png" alt="ভূমিঘর লোগো" className="report-logo" />
+              <h1>ভূমিঘর</h1>
+              <div>জমির তথ্যের প্রতিবেদন</div>
+            </header>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', marginBottom: '12px' }}>
+              <span>প্রতিবেদন তৈরির তারিখ: {new Date().toLocaleDateString('bn-BD')}</span>
+              <span>রেকর্ড: {printRecord.deed_number || 'দলিল নম্বর নেই'}</span>
+            </div>
+
+            <h2>জমির সম্পূর্ণ বিবরণ</h2>
+            <div className="report-grid">
+              {[
+                ['দলিল নম্বর', printRecord.deed_number],
+                ['দাতার নাম', printRecord.donor_name],
+                ['গ্রহীতার নাম', printRecord.recipient_name],
+                ['মৌজা', printRecord.mouza],
+                ['সীট নম্বর', printRecord.sheet_number],
+                ['দাগের ধরন', printRecord.dag_type],
+                ['দাগ নম্বর', printRecord.dag_number],
+                ['খতিয়ানের ধরন', printRecord.khatian_type],
+                ['খতিয়ান নম্বর', printRecord.khatian_number],
+                ['নামজারি কেস নম্বর', printRecord.mutation_case_number],
+                ['হোল্ডিং নম্বর', printRecord.holding_number],
+                ['মোট জমি', `${printRecord.total_land ?? '—'} ${printRecord.total_land_unit || 'শতক'}`],
+                ['ক্রয়/নিজস্ব জমি', `${printRecord.owned_land ?? '—'} ${printRecord.owned_land_unit || 'শতক'}`]
+              ].map(([label, value]) => (
+                <div className="report-field" key={label}>
+                  <span className="report-label">{label}</span>
+                  <span className="report-value">{value === null || value === undefined || value === '' ? '—' : value}</span>
+                </div>
+              ))}
+            </div>
+
+            <h2>সংযুক্ত কাগজপত্র ({(printRecord.land_record_files || []).length}টি)</h2>
+            {(printRecord.land_record_files || []).length === 0 ? (
+              <p>কোনো কাগজপত্র সংযুক্ত নেই।</p>
+            ) : (
+              <table className="report-files">
+                <thead><tr><th>ক্রমিক</th><th>কাগজপত্রের ধরন</th><th>ফাইলের নাম</th></tr></thead>
+                <tbody>
+                  {(printRecord.land_record_files || []).map((file, index) => (
+                    <tr key={file.id}><td>{(index + 1).toLocaleString('bn-BD')}</td><td>{file.category || 'অন্যান্য কাগজপত্র'}</td><td>{file.file_name}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            <div className="signature-row">
+              <div className="signature">তথ্য প্রদানকারীর স্বাক্ষর</div>
+              <div className="signature">যাচাইকারীর স্বাক্ষর</div>
+            </div>
+            <footer className="report-footer">
+              এই প্রতিবেদনটি ভূমিঘর অ্যাপে সংরক্ষিত ব্যবহারকারীর দেওয়া তথ্যের ভিত্তিতে তৈরি। এটি কোনো সরকারি খতিয়ান, দলিল বা প্রত্যয়িত নথির বিকল্প নয়।<br />
+              Developed by Muktar Graphics
+            </footer>
+          </article>
         )}
 
         {filePreviewLoading && (
