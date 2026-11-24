@@ -5,7 +5,7 @@ import { supabase, STORAGE_BUCKET } from './supabase'
 import {
   Plus, Search, LogOut, FileText, Trash2, Download, X,
   ShieldCheck, Pencil, Upload, FolderOpen, Eye, EyeOff,
-  BarChart3, MapPin, Files, LandPlot, Printer
+  BarChart3, Files, LandPlot, Printer
 } from 'lucide-react'
 import './style.css'
 
@@ -66,28 +66,6 @@ function parseLandAmount(value) {
   return number
 }
 
-// পৃথিবীর বক্রতা বিবেচনায় অক্ষাংশ/দ্রাঘিমাংশ থেকে বহুভুজের আনুমানিক আয়তন (m²)
-function calculatePolygonArea(points) {
-  if (!Array.isArray(points) || points.length < 3) return 0
-  const earthRadius = 6378137
-  let total = 0
-  for (let i = 0; i < points.length; i += 1) {
-    const current = points[i]
-    const next = points[(i + 1) % points.length]
-    const lat1 = Number(current?.[0]) * Math.PI / 180
-    const lat2 = Number(next?.[0]) * Math.PI / 180
-    const lon1 = Number(current?.[1]) * Math.PI / 180
-    const lon2 = Number(next?.[1]) * Math.PI / 180
-    if (![lat1, lat2, lon1, lon2].every(Number.isFinite)) return 0
-    total += (lon2 - lon1) * (2 + Math.sin(lat1) + Math.sin(lat2))
-  }
-  return Math.abs(total * earthRadius * earthRadius / 2)
-}
-
-function formatArea(value) {
-  return Number(value).toLocaleString('bn-BD', { maximumFractionDigits: 3 })
-}
-
 function App() {
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -114,7 +92,17 @@ function App() {
   const [selectedRecordIds, setSelectedRecordIds] = useState([])
   const [importBusy, setImportBusy] = useState(false)
   const [activePage, setActivePage] = useState('dashboard')
-  const [mapLayer, setMapLayer] = useState('satellite')
+  const [profileName, setProfileName] = useState('')
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState('')
+  const [profileAvatarPath, setProfileAvatarPath] = useState('')
+  const [profilePhotoFile, setProfilePhotoFile] = useState(null)
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [profileMessage, setProfileMessage] = useState('')
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [changeNewPassword, setChangeNewPassword] = useState('')
+  const [changeConfirmPassword, setChangeConfirmPassword] = useState('')
+  const [passwordChangeBusy, setPasswordChangeBusy] = useState(false)
+  const [passwordChangeMessage, setPasswordChangeMessage] = useState('')
   const [mapPoints, setMapPoints] = useState([])
   const [mapStatus, setMapStatus] = useState('ম্যাপ প্রস্তুত হচ্ছে...')
   const [mouzaMapFile, setMouzaMapFile] = useState(null)
@@ -123,12 +111,6 @@ function App() {
   const [mapSaving, setMapSaving] = useState(false)
   const [mapLoading, setMapLoading] = useState(false)
   const [removeSavedMapFile, setRemoveSavedMapFile] = useState(false)
-  const mapContainerRef = useRef(null)
-  const leafletMapRef = useRef(null)
-  const mapLayerRef = useRef(null)
-  const mapLabelsLayerRef = useRef(null)
-  const parcelPolygonRef = useRef(null)
-  const parcelMarkersRef = useRef([])
 
   const [pendingFiles, setPendingFiles] = useState([])
   const [fileCategory, setFileCategory] = useState('জমির দলিল')
@@ -161,6 +143,122 @@ function App() {
   }, [])
 
   useEffect(() => {
+    if (!session?.user) return
+    const metadata = session.user.user_metadata || {}
+    setProfileName(metadata.full_name || metadata.name || '')
+    const avatarPath = metadata.avatar_path || ''
+    setProfileAvatarPath(avatarPath)
+    setProfileAvatarUrl('')
+    if (avatarPath) {
+      supabase.storage.from(STORAGE_BUCKET).createSignedUrl(avatarPath, 60 * 60)
+        .then(({ data, error }) => {
+          if (!error && data?.signedUrl) setProfileAvatarUrl(data.signedUrl)
+        })
+    }
+  }, [session?.user?.id])
+
+  async function changeAccountPassword(e) {
+    e.preventDefault()
+    if (!session?.user?.email) return
+    if (!currentPassword || !changeNewPassword || !changeConfirmPassword) {
+      setPasswordChangeMessage('সবগুলো ঘর পূরণ করুন।')
+      return
+    }
+    if (changeNewPassword.length < 6) {
+      setPasswordChangeMessage('নতুন পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।')
+      return
+    }
+    if (changeNewPassword !== changeConfirmPassword) {
+      setPasswordChangeMessage('নতুন পাসওয়ার্ড ও নিশ্চিতকরণ পাসওয়ার্ড মিলছে না।')
+      return
+    }
+    if (currentPassword === changeNewPassword) {
+      setPasswordChangeMessage('নতুন পাসওয়ার্ডটি পুরোনো পাসওয়ার্ড থেকে আলাদা দিন।')
+      return
+    }
+
+    setPasswordChangeBusy(true)
+    setPasswordChangeMessage('')
+    try {
+      const { error: verifyError } = await supabase.auth.signInWithPassword({
+        email: session.user.email,
+        password: currentPassword
+      })
+      if (verifyError) throw new Error('পুরোনো পাসওয়ার্ড সঠিক নয়।')
+
+      const { error: updateError } = await supabase.auth.updateUser({ password: changeNewPassword })
+      if (updateError) throw updateError
+
+      setCurrentPassword('')
+      setChangeNewPassword('')
+      setChangeConfirmPassword('')
+      setPasswordChangeMessage('আপনার পাসওয়ার্ড সফলভাবে পরিবর্তন হয়েছে।')
+    } catch (error) {
+      setPasswordChangeMessage('পাসওয়ার্ড পরিবর্তন করা যায়নি: ' + (error.message || 'অজানা সমস্যা'))
+    } finally {
+      setPasswordChangeBusy(false)
+    }
+  }
+
+  async function saveProfile(e) {
+    e.preventDefault()
+    if (!session?.user) return
+    if (!profileName.trim()) {
+      setProfileMessage('অনুগ্রহ করে আপনার নাম লিখুন।')
+      return
+    }
+
+    setProfileSaving(true)
+    setProfileMessage('')
+    try {
+      let nextAvatarPath = profileAvatarPath
+      if (profilePhotoFile) {
+        if (!profilePhotoFile.type.startsWith('image/')) {
+          throw new Error('শুধুমাত্র ছবি ফাইল নির্বাচন করুন।')
+        }
+        if (profilePhotoFile.size > 5 * 1024 * 1024) {
+          throw new Error('ছবির আকার ৫ MB-এর কম হতে হবে।')
+        }
+        const extension = (profilePhotoFile.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+        nextAvatarPath = `${session.user.id}/profile/avatar.${extension}`
+        const { error: uploadError } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .upload(nextAvatarPath, profilePhotoFile, {
+            upsert: true,
+            contentType: profilePhotoFile.type,
+            cacheControl: '3600'
+          })
+        if (uploadError) throw uploadError
+      }
+
+      const { data, error } = await supabase.auth.updateUser({
+        data: {
+          ...session.user.user_metadata,
+          full_name: profileName.trim(),
+          avatar_path: nextAvatarPath
+        }
+      })
+      if (error) throw error
+
+      const updatedUser = data?.user
+      if (updatedUser) setSession(current => current ? { ...current, user: updatedUser } : current)
+      setProfileAvatarPath(nextAvatarPath)
+      if (nextAvatarPath) {
+        const { data: signed, error: signedError } = await supabase.storage
+          .from(STORAGE_BUCKET).createSignedUrl(nextAvatarPath, 60 * 60)
+        if (signedError) throw signedError
+        setProfileAvatarUrl(signed?.signedUrl || '')
+      }
+      setProfilePhotoFile(null)
+      setProfileMessage('আপনার প্রোফাইল সফলভাবে সংরক্ষণ হয়েছে।')
+    } catch (error) {
+      setProfileMessage('প্রোফাইল সংরক্ষণ করা যায়নি: ' + (error.message || 'অজানা সমস্যা'))
+    } finally {
+      setProfileSaving(false)
+    }
+  }
+
+  useEffect(() => {
     if (!printRecord) return
 
     const timer = window.setTimeout(() => window.print(), 350)
@@ -173,121 +271,7 @@ function App() {
     }
   }, [printRecord])
 
-  useEffect(() => {
-    if (activePage !== 'map') return
-    let cancelled = false
-    const loadLeaflet = () => {
-      if (window.L) return Promise.resolve(window.L)
-      if (!document.querySelector('link[data-bhumighor-leaflet]')) {
-        const link = document.createElement('link')
-        link.rel = 'stylesheet'
-        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
-        link.dataset.bhumighorLeaflet = 'true'
-        document.head.appendChild(link)
-      }
-      return new Promise((resolve, reject) => {
-        const existing = document.querySelector('script[data-bhumighor-leaflet]')
-        if (existing) {
-          existing.addEventListener('load', () => resolve(window.L), { once: true })
-          existing.addEventListener('error', reject, { once: true })
-          if (window.L) resolve(window.L)
-          return
-        }
-        const script = document.createElement('script')
-        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
-        script.dataset.bhumighorLeaflet = 'true'
-        script.onload = () => resolve(window.L)
-        script.onerror = reject
-        document.body.appendChild(script)
-      })
-    }
-    loadLeaflet().then(L => {
-      if (cancelled || !mapContainerRef.current || leafletMapRef.current) return
-      const map = L.map(mapContainerRef.current, {
-        zoomControl: true,
-        preferCanvas: true,
-        zoomSnap: 1,
-        wheelDebounceTime: 80
-      }).setView([24.0, 90.2], 7)
-      leafletMapRef.current = map
-      mapLayerRef.current = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Tiles © Esri', maxNativeZoom: 19, maxZoom: 21,
-        updateWhenZooming: false, updateWhenIdle: true, keepBuffer: 3
-      }).addTo(map)
-      mapLabelsLayerRef.current = L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Labels © Esri', maxNativeZoom: 19, maxZoom: 21,
-        pane: 'overlayPane', opacity: 1, updateWhenZooming: false, updateWhenIdle: true, keepBuffer: 3
-      }).addTo(map)
-      window.setTimeout(() => { if (!cancelled && leafletMapRef.current === map) map.invalidateSize(true) }, 250)
-      map.on('click', event => setMapPoints(current => [...current, [event.latlng.lat, event.latlng.lng]]))
-      setMapStatus('ম্যাপ চালু হয়েছে। জমির সীমানার পয়েন্ট দিতে ম্যাপে ক্লিক করুন।')
-    }).catch(() => {
-      if (!cancelled) setMapStatus('ম্যাপ লোড করা যায়নি। ইন্টারনেট সংযোগ পরীক্ষা করে আবার চেষ্টা করুন।')
-    })
-    return () => {
-      cancelled = true
-      if (leafletMapRef.current) {
-        leafletMapRef.current.remove()
-        leafletMapRef.current = null
-        mapLayerRef.current = null
-        mapLabelsLayerRef.current = null
-        parcelPolygonRef.current = null
-        parcelMarkersRef.current = []
-      }
-    }
-  }, [activePage])
-
-  useEffect(() => {
-    const map = leafletMapRef.current
-    const L = window.L
-    if (!map || !L || activePage !== 'map') return
-    if (mapLayerRef.current) map.removeLayer(mapLayerRef.current)
-    if (mapLabelsLayerRef.current) {
-      map.removeLayer(mapLabelsLayerRef.current)
-      mapLabelsLayerRef.current = null
-    }
-    mapLayerRef.current = mapLayer === 'satellite'
-      ? L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-          attribution: 'Tiles © Esri', maxNativeZoom: 19, maxZoom: 21,
-          updateWhenZooming: false, updateWhenIdle: true, keepBuffer: 3
-        })
-      : L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '© OpenStreetMap contributors', subdomains: 'abc',
-          maxNativeZoom: 19, maxZoom: 21,
-          updateWhenZooming: false, updateWhenIdle: true, keepBuffer: 3
-        })
-    mapLayerRef.current.addTo(map)
-    if (mapLayer === 'satellite') {
-      mapLabelsLayerRef.current = L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Labels © Esri', maxNativeZoom: 19, maxZoom: 21,
-        pane: 'overlayPane', opacity: 1, updateWhenZooming: false, updateWhenIdle: true, keepBuffer: 3
-      }).addTo(map)
-    }
-  }, [mapLayer, activePage])
-
-  useEffect(() => {
-    const map = leafletMapRef.current
-    const L = window.L
-    if (!map || !L || activePage !== 'map') return
-    parcelMarkersRef.current.forEach(marker => map.removeLayer(marker))
-    parcelMarkersRef.current = []
-    if (parcelPolygonRef.current) {
-      map.removeLayer(parcelPolygonRef.current)
-      parcelPolygonRef.current = null
-    }
-    mapPoints.forEach(point => parcelMarkersRef.current.push(
-      L.circleMarker(point, { radius: 6, color: '#fff', weight: 2, fillColor: '#08a045', fillOpacity: 1 }).addTo(map)
-    ))
-    if (mapPoints.length >= 3) {
-      parcelPolygonRef.current = L.polygon(mapPoints, { color: '#f5d90a', weight: 3, fillColor: '#20c45a', fillOpacity: 0.35 }).addTo(map)
-    }
-  }, [mapPoints, activePage])
-
   useEffect(() => () => {
-    if (leafletMapRef.current) {
-      leafletMapRef.current.remove()
-      leafletMapRef.current = null
-    }
     if (mouzaMapFile?.url && mouzaMapFile.localPreview) URL.revokeObjectURL(mouzaMapFile.url)
   }, [])
 
@@ -627,6 +611,7 @@ function App() {
 
     setPendingFiles([])
     setShowForm(true)
+    setActivePage('dashboard')
     setMessage('জমির তথ্য সংশোধন করুন।')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -789,6 +774,7 @@ function App() {
     const wasEditing = Boolean(editingRecord)
 
     resetForm()
+    setActivePage('records')
 
     setMessage(
       wasEditing
@@ -827,7 +813,7 @@ function App() {
         .upsert({
           user_id: session.user.id,
           land_record_id: selectedMapRecordId,
-          map_points: mapPoints,
+          map_points: [],
           map_file_path: nextFilePath,
           map_file_name: nextFilePath
             ? (mouzaMapFile?.file?.name || mouzaMapFile?.name || null)
@@ -866,7 +852,7 @@ function App() {
         }
       }
 
-      setMapStatus('জমির সীমানা ও মৌজা/দাগের নকশা সফলভাবে Supabase-এ সংরক্ষিত হয়েছে।')
+      setMapStatus('মৌজা/দাগের নকশা সফলভাবে Supabase-এ সংরক্ষিত হয়েছে।')
     } catch (error) {
       if (uploadedNewPath) {
         await supabase.storage.from(STORAGE_BUCKET).remove([uploadedNewPath])
@@ -1082,18 +1068,7 @@ function App() {
   }, [records])
 
 
-  const measuredAreaSqm = useMemo(
-    () => calculatePolygonArea(mapPoints),
-    [mapPoints]
-  )
-  const measuredArea = useMemo(() => ({
-    sqm: measuredAreaSqm,
-    sqft: measuredAreaSqm * 10.7639104167,
-    shotok: measuredAreaSqm / 40.468564224,
-    katha: measuredAreaSqm / 66.89027712,
-    bigha: measuredAreaSqm / 1337.8055424,
-    acre: measuredAreaSqm / 4046.8564224
-  }), [measuredAreaSqm])
+
 
   if (loading) {
     return <div className="center">লোড হচ্ছে...</div>
@@ -1362,13 +1337,13 @@ function App() {
         </div>
         <nav className="bh-nav" aria-label="প্রধান মেনু">
           <a className={activePage === 'dashboard' ? 'active' : ''} href="#dashboard" onClick={() => setActivePage('dashboard')}><span>⌂</span> ড্যাশবোর্ড</a>
-          <a className={activePage === 'map' ? 'active' : ''} href="#land-map" onClick={event => { event.preventDefault(); setActivePage('map'); setMapStatus('ম্যাপ প্রস্তুত হচ্ছে...') }}><span>⌖</span> জমির ম্যাপ</a>
-          <a href="#records-section"><span>▦</span> জমির তথ্য</a>
-          <a href="#records-section"><span>▤</span> সংযুক্ত কাগজপত্র</a>
-          <a href="#records-section"><span>▣</span> সম্মিলিত PDF</a>
-          <a href="#records-section"><span>⇅</span> CSV Export/Import</a>
-          <a href="#records-section"><span>⌕</span> সার্চ ও ফিল্টার</a>
-          <a href="#records-section"><span>⚙</span> সেটিংস</a>
+          <button type="button" className={activePage === 'profile' ? 'active' : ''} onClick={() => { setActivePage('profile'); setProfileMessage('') }}><span>◉</span> আমার প্রোফাইল</button>
+          <a className={activePage === 'records' ? 'active' : ''} href="#records-section" onClick={() => setActivePage('records')}><span>▦</span> জমির তথ্য</a>
+          <a href="#records-section" onClick={() => setActivePage('records')}><span>▤</span> সংযুক্ত কাগজপত্র</a>
+          <a href="#records-section" onClick={() => setActivePage('records')}><span>▣</span> সম্মিলিত PDF</a>
+          <a href="#records-section" onClick={() => setActivePage('records')}><span>⇅</span> CSV Export/Import</a>
+          <a href="#records-section" onClick={() => setActivePage('records')}><span>⌕</span> সার্চ ও ফিল্টার</a>
+          <button type="button" className={activePage === 'settings' ? 'active' : ''} onClick={() => { setActivePage('settings'); setPasswordChangeMessage('') }}><span>⚙</span> সেটিংস</button>
           <button type="button" onClick={() => supabase.auth.signOut()}><span>⇥</span> লগআউট</button>
         </nav>
         <div className="bh-sidebar-bottom">
@@ -1383,211 +1358,68 @@ function App() {
         <header className="bh-topbar">
           <div className="bh-user-welcome">
             <span className="bh-wave">👋</span>
-            <div><h1>স্বাগতম!</h1><p>আপনার ভূমিঘর ড্যাশবোর্ডে আপনাকে স্বাগতম।</p></div>
+            <div><h1>{profileName || 'স্বাগতম!'}</h1><p>আপনার ভূমিঘর ড্যাশবোর্ডে আপনাকে স্বাগতম।</p></div>
           </div>
-          <div className="bh-user-pill"><span className="bh-avatar">👤</span><span>{session.user.email}</span><button type="button" onClick={() => supabase.auth.signOut()}>লগআউট ↗</button></div>
+          <button type="button" className="bh-user-pill" onClick={() => { setActivePage('profile'); setProfileMessage('') }} aria-label="আমার প্রোফাইল খুলুন">
+            <span className="bh-avatar">{profileAvatarUrl ? <img src={profileAvatarUrl} alt="প্রোফাইল" /> : '👤'}</span>
+            <span className="bh-user-identity"><strong>{profileName || 'আপনার নাম'}</strong></span>
+            <span className="bh-profile-edit-label">প্রোফাইল ↗</span>
+          </button>
         </header>
 
-        {activePage === 'map' ? (
-          <section className="bh-map-page" id="land-map">
-            <div className="bh-map-hero">
-              <div><span>ভূমিঘর · উন্নত ফিচার</span><h2>জমির ম্যাপ</h2><p>স্যাটেলাইট ম্যাপে জমির অবস্থান দেখুন এবং মৌজা/দাগের নকশা সংযুক্ত করুন।</p></div>
-              <MapPin size={42} />
+        {activePage === 'profile' && (
+          <section className="bh-profile-page">
+            <div className="bh-profile-heading">
+              <div><span>ব্যক্তিগত তথ্য</span><h2>আমার প্রোফাইল</h2><p>আপনার নাম ও প্রোফাইল ছবি হালনাগাদ করুন।</p></div>
+              <button type="button" onClick={() => setActivePage('dashboard')}>ড্যাশবোর্ডে ফিরে যান</button>
             </div>
-            <div className="bh-map-toolbar">
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontWeight: 700 }}>
-                জমির রেকর্ড নির্বাচন
-                <select
-                  value={selectedMapRecordId}
-                  onChange={event => setSelectedMapRecordId(event.target.value)}
-                  disabled={!records.length || mapLoading || mapSaving}
-                  style={{ minWidth: '220px', maxWidth: '100%', padding: '9px', border: '1px solid #cbd5e1', borderRadius: '8px' }}
-                >
-                  {!records.length && <option value="">আগে জমির রেকর্ড যোগ করুন</option>}
-                  {records.map(record => (
-                    <option key={record.id} value={String(record.id)}>
-                      {[record.mouza, record.dag_number ? `দাগ ${record.dag_number}` : '', record.deed_number ? `দলিল ${record.deed_number}` : ''].filter(Boolean).join(' · ') || 'নামবিহীন জমির রেকর্ড'}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button className={mapLayer === 'satellite' ? 'selected' : ''} onClick={() => setMapLayer('satellite')} type="button">স্যাটেলাইট ম্যাপ</button>
-              <button className={mapLayer === 'street' ? 'selected' : ''} onClick={() => setMapLayer('street')} type="button">সাধারণ ম্যাপ</button>
-              <button type="button" className="bh-map-gps" onClick={() => {
-                if (!navigator.geolocation) { setMapStatus('এই ব্রাউজারে GPS সুবিধা নেই।'); return }
-                setMapStatus('আপনার অবস্থান খোঁজা হচ্ছে...')
-                navigator.geolocation.getCurrentPosition(position => {
-                  const map = leafletMapRef.current
-                  if (map && window.L) {
-                    const point = [position.coords.latitude, position.coords.longitude]
-                    map.setView(point, 17)
-                    window.L.marker(point).addTo(map).bindPopup('আপনার বর্তমান অবস্থান').openPopup()
-                    setMapStatus('GPS অবস্থান পাওয়া গেছে।')
-                  }
-                }, error => setMapStatus('GPS পাওয়া যায়নি: ' + error.message), { enableHighAccuracy: true, timeout: 12000 })
-              }}>◎ GPS লোকেশন</button>
-            </div>
-            <div className="bh-map-layout">
-              <div className="bh-map-card">
-                <div ref={mapContainerRef} className="bh-leaflet-map" />
-                <div className="bh-map-help">ম্যাপে ক্লিক করে সীমানার পয়েন্ট দিন। ৩টি বা তার বেশি পয়েন্ট দিলে জমির সীমানা দেখা যাবে।</div>
-                <div className="bh-map-actions">
-                  <button type="button" onClick={() => setMapPoints([])}>সীমানা মুছুন</button>
-                  <button type="button" onClick={() => {
-                    const map = leafletMapRef.current
-                    if (map && mapPoints.length) map.fitBounds(mapPoints, { padding: [30, 30] })
-                  }}>সীমানা দেখুন</button>
+            <form className="bh-profile-card" onSubmit={saveProfile}>
+              <div className="bh-profile-photo-area">
+                <div className="bh-profile-photo">
+                  {profilePhotoFile
+                    ? <img src={URL.createObjectURL(profilePhotoFile)} alt="নতুন প্রোফাইল ছবি" />
+                    : profileAvatarUrl ? <img src={profileAvatarUrl} alt="প্রোফাইল ছবি" /> : <span>👤</span>}
                 </div>
-              </div>
-              <aside className="bh-map-side">
-                <h3>মৌজা ও দাগের নকশা</h3>
-                <p>আপনার কাছে থাকা মৌজা/দাগের নকশার ছবি বা PDF এখানে নির্বাচন করে দেখতে পারবেন।</p>
-                <label className="bh-map-upload">
-                  <Upload size={18}/> নকশা আপলোড করুন
-                  <input type="file" accept="image/*,.pdf,application/pdf" onChange={event => {
-                    const file = event.target.files?.[0]
-                    if (!file) return
-                    const valid = ['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)
-                    if (!valid) {
-                      setMapStatus('শুধু PDF, JPG ও PNG নকশা আপলোড করা যাবে।')
-                      event.target.value = ''
-                      return
-                    }
-                    if (file.size > 50 * 1024 * 1024) {
-                      setMapStatus('নকশার ফাইল ৫০ MB-এর বেশি হতে পারবে না।')
-                      event.target.value = ''
-                      return
-                    }
-                    if (mouzaMapFile?.url && mouzaMapFile.localPreview) URL.revokeObjectURL(mouzaMapFile.url)
-                    setMouzaMapFile({ file, name: file.name, url: URL.createObjectURL(file), type: file.type, localPreview: true })
-                    setRemoveSavedMapFile(false)
-                    event.target.value = ''
-                  }}/>
+                <label className="bh-photo-upload">ছবি নির্বাচন করুন
+                  <input type="file" accept="image/*" onChange={e => setProfilePhotoFile(e.target.files?.[0] || null)} />
                 </label>
-                {mouzaMapFile ? (
-                  <div className="bh-mouza-preview">
-                    <strong>{mouzaMapFile.name || mouzaMapFile.file?.name || 'মৌজা নকশা'}</strong>
-                    {mouzaMapFile.type === 'application/pdf'
-                      ? <a href={mouzaMapFile.url} target="_blank" rel="noreferrer">PDF নকশা খুলুন</a>
-                      : <a href={mouzaMapFile.url} target="_blank" rel="noreferrer"><img src={mouzaMapFile.url} alt="মৌজা নকশার প্রিভিউ"/></a>}
-                    <button type="button" onClick={() => {
-                      if (mouzaMapFile.url && mouzaMapFile.localPreview) URL.revokeObjectURL(mouzaMapFile.url)
-                      setMouzaMapFile(null)
-                      setRemoveSavedMapFile(true)
-                    }}>নকশা সরান</button>
-                  </div>
-                ) : <div className="bh-map-empty">এখনো কোনো নকশা নির্বাচন করা হয়নি।</div>}
-                <div className="bh-map-info"><strong>সীমানার পয়েন্ট</strong><b>{mapPoints.length.toLocaleString('bn-BD')} টি</b><small>নির্বাচিত জমির ম্যাপ</small></div>
-                <div style={{ marginTop: '14px', padding: '15px', border: '1px solid #bbf7d0', borderRadius: '12px', background: '#f0fdf4' }}>
-                  <h3 style={{ margin: '0 0 8px', color: '#166534', fontSize: '16px' }}>জমির পরিমাণ (আনুমানিক)</h3>
-                  {mapPoints.length >= 3 ? (
-                    <>
-                      <div style={{ fontSize: '24px', fontWeight: 800, color: '#14532d', marginBottom: '8px' }}>{formatArea(measuredArea.shotok)} শতক</div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '13px' }}>
-                        <div><strong>{formatArea(measuredArea.sqm)}</strong><br/>বর্গমিটার</div>
-                        <div><strong>{formatArea(measuredArea.sqft)}</strong><br/>বর্গফুট</div>
-                        <div><strong>{formatArea(measuredArea.katha)}</strong><br/>কাঠা</div>
-                        <div><strong>{formatArea(measuredArea.bigha)}</strong><br/>বিঘা</div>
-                        <div><strong>{formatArea(measuredArea.acre)}</strong><br/>একর</div>
-                      </div>
-                    </>
-                  ) : (
-                    <p style={{ margin: 0, color: '#64748b', fontSize: '13px' }}>আয়তন হিসাব করতে ম্যাপে কমপক্ষে ৩টি সীমানার পয়েন্ট দিন।</p>
-                  )}
-                  <small style={{ display: 'block', marginTop: '10px', color: '#64748b', lineHeight: 1.5 }}>
-                    হিসাবটি আঁকা সীমানার ভিত্তিতে আনুমানিক। কাঠা ও বিঘার রূপান্তরে প্রচলিত বাংলাদেশি মান (১ কাঠা = ৭২০ বর্গফুট, ১ বিঘা = ২০ কাঠা) ব্যবহার করা হয়েছে।
-                  </small>
-                </div>
-                <button type="button" className="primary" onClick={saveLandMap} disabled={!selectedMapRecordId || mapSaving || mapLoading}>
-                  {mapSaving ? 'সংরক্ষণ হচ্ছে...' : 'ম্যাপ সংরক্ষণ করুন'}
-                </button>
-              </aside>
-            </div>
-            <div className="bh-map-status"><span>●</span>{mapStatus}</div>
-            <p className="bh-map-disclaimer">দ্রষ্টব্য: ম্যাপ সংরক্ষণ করতে একটি জমির রেকর্ড নির্বাচন করে “ম্যাপ সংরক্ষণ করুন” চাপুন। সরকারি দাগের সঠিক সীমানা নিশ্চিত করতে নির্ভরযোগ্য/সরকারি মৌজা নকশা প্রয়োজন।</p>
+                <small>JPG, PNG বা WebP · সর্বোচ্চ ৫ MB</small>
+              </div>
+              <div className="bh-profile-fields">
+                <label>আপনার নাম<input type="text" value={profileName} onChange={e => setProfileName(e.target.value)} placeholder="যেমন: মোঃ মুক্তারুজ্জামান" maxLength={80} required /></label>
+                <label>ইমেইল ঠিকানা<input type="email" value={session.user.email || ''} readOnly /></label>
+                <p>ইমেইল ঠিকানা লগইন অ্যাকাউন্টের সঙ্গে যুক্ত; এই পেজ থেকে এটি পরিবর্তন করা যাবে না।</p>
+                {profileMessage && <div className="bh-profile-message" role="status">{profileMessage}</div>}
+                <button className="bh-profile-save" type="submit" disabled={profileSaving}>{profileSaving ? 'সংরক্ষণ হচ্ছে...' : 'পরিবর্তন সংরক্ষণ করুন'}</button>
+              </div>
+            </form>
           </section>
-        ) : <>
+        )}
+
+        {activePage === 'settings' && (
+          <section className="bh-profile-page bh-settings-page">
+            <div className="bh-profile-heading">
+              <div><span>অ্যাকাউন্ট নিরাপত্তা</span><h2>সেটিংস</h2><p>আপনার অ্যাকাউন্টের পাসওয়ার্ড পরিবর্তন করুন।</p></div>
+              <button type="button" onClick={() => setActivePage('dashboard')}>ড্যাশবোর্ডে ফিরে যান</button>
+            </div>
+            <form className="bh-settings-card" onSubmit={changeAccountPassword}>
+              <h3>পাসওয়ার্ড পরিবর্তন</h3>
+              <p>নিরাপত্তার জন্য প্রথমে আপনার বর্তমান পাসওয়ার্ড দিন।</p>
+              <label>পুরোনো পাসওয়ার্ড<input type="password" autoComplete="current-password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} placeholder="বর্তমান পাসওয়ার্ড লিখুন" required /></label>
+              <label>নতুন পাসওয়ার্ড<input type="password" autoComplete="new-password" value={changeNewPassword} onChange={e => setChangeNewPassword(e.target.value)} placeholder="কমপক্ষে ৬ অক্ষর" minLength={6} required /></label>
+              <label>নতুন পাসওয়ার্ড নিশ্চিত করুন<input type="password" autoComplete="new-password" value={changeConfirmPassword} onChange={e => setChangeConfirmPassword(e.target.value)} placeholder="নতুন পাসওয়ার্ড আবার লিখুন" minLength={6} required /></label>
+              {passwordChangeMessage && <div className="bh-profile-message" role="status">{passwordChangeMessage}</div>}
+              <button className="bh-profile-save" type="submit" disabled={passwordChangeBusy}>{passwordChangeBusy ? 'পরিবর্তন হচ্ছে...' : 'নতুন পাসওয়ার্ড সংরক্ষণ করুন'}</button>
+            </form>
+          </section>
+        )}
+
+        <div style={{ display: activePage === 'dashboard' ? 'block' : 'none' }}>
+        <>
         <section className="bh-hero" id="dashboard">
           <div><span>আপনার জমির ডিজিটাল নথিঘর</span><h2>আপনার সকল জমির তথ্য এক জায়গায়</h2><p>নিরাপদে সংরক্ষণ করুন, সহজে খুঁজে নিন এবং প্রয়োজনমতো রিপোর্ট তৈরি করুন।</p></div>
           <img src="/logo.png" alt="ভূমিঘর লোগো" />
         </section>
-
-        <section className="bh-stat-grid" aria-label="জমির সারসংক্ষেপ">
-          <article className="bh-stat bh-stat-blue"><span className="bh-stat-icon">▤</span><div><small>মোট রেকর্ড</small><strong>{dashboardStats.recordCount.toLocaleString('bn-BD')}</strong><small>টি জমির তথ্য</small></div></article>
-          <article className="bh-stat bh-stat-green"><span className="bh-stat-icon">🌾</span><div><small>মোট জমি</small><strong>{dashboardStats.totalLand}</strong><small>একক অনুযায়ী হিসাব</small></div></article>
-          <article className="bh-stat bh-stat-orange"><span className="bh-stat-icon">⌂</span><div><small>ক্রয়/নিজস্ব জমি</small><strong>{dashboardStats.ownedLand}</strong><small>একক অনুযায়ী হিসাব</small></div></article>
-          <article className="bh-stat bh-stat-purple"><span className="bh-stat-icon">▰</span><div><small>সংযুক্ত কাগজপত্র</small><strong>{dashboardStats.fileCount.toLocaleString('bn-BD')}</strong><small>টি ফাইল সংরক্ষিত</small></div></article>
-        </section>
-
-        <section className="bh-chart-grid">
-          <article className="bh-panel">
-            <h3><span>▥</span> জমির একক অনুযায়ী পরিসংখ্যান</h3>
-            <div className="bh-bar-chart">
-              {chartStats.landRows.length ? chartStats.landRows.map((row, index) => <div className="bh-bar-item" key={row.unit}><strong>{row.total.toLocaleString('bn-BD',{maximumFractionDigits:2})}</strong><div className="bh-bar-track"><i style={{height:`${Math.max(5, chartStats.maxLand ? row.total/chartStats.maxLand*100 : 0)}%`}} /></div><small>{row.unit}</small></div>) : <p className="bh-empty-chart">জমির পরিমাণের তথ্য পাওয়া যায়নি।</p>}
-            </div>
-            <p className="bh-chart-note">প্রতিটি এককের হিসাব আলাদাভাবে দেখানো হয়েছে</p>
-          </article>
-          <article className="bh-panel">
-            <h3><span>◉</span> মৌজা অনুযায়ী জমির রেকর্ড</h3>
-            {chartStats.topMouzas.length ? <div className="bh-mouza-list">{chartStats.topMouzas.slice(0,4).map((item,index)=><div className="bh-mouza-row" key={item.name}><span className={`bh-dot dot-${index%4}`} /><div><strong>{item.name}</strong><small>{item.count.toLocaleString('bn-BD')} টি রেকর্ড</small></div><b>{chartStats.maxMouza ? Math.round(item.count/chartStats.maxMouza*100) : 0}%</b></div>)}</div> : <p className="bh-empty-chart">মৌজার তথ্য পাওয়া যায়নি।</p>}
-          </article>
-          <article className="bh-panel">
-            <h3><span>⌁</span> কাগজপত্রের ধরন অনুযায়ী</h3>
-            {chartStats.categories.length ? <div className="bh-category-list">{chartStats.categories.slice(0,5).map((item,index)=><div key={item.name}><div><span>{item.name}</span><b>{item.count.toLocaleString('bn-BD')} টি</b></div><i><em style={{width:`${chartStats.maxCategory ? item.count/chartStats.maxCategory*100 : 0}%`}} /></i></div>)}</div> : <p className="bh-empty-chart">কোনো কাগজপত্র সংযুক্ত নেই।</p>}
-          </article>
-        </section>
-
-        <section className="bh-lower-grid">
-          <article className="bh-panel bh-recent-panel">
-            <div className="bh-panel-heading"><h3><span>◷</span> সাম্প্রতিক জমির রেকর্ড</h3><a href="#records-section">সব দেখুন →</a></div>
-            {records.length ? <div className="bh-recent-table-wrap"><table className="bh-recent-table"><thead><tr><th>#</th><th>মৌজা</th><th>দাগ নং</th><th>খতিয়ান নং</th><th>মোট জমি</th><th>কাগজপত্র</th><th>দেখুন</th></tr></thead><tbody>{records.slice(0,5).map((r,index)=><tr key={r.id}><td>{(index+1).toLocaleString('bn-BD')}</td><td>{r.mouza || '—'}</td><td>{r.dag_number || '—'}</td><td>{r.khatian_number || '—'}</td><td>{r.total_land ?? '—'} {r.total_land_unit || 'শতক'}</td><td>{(r.land_record_files||[]).length.toLocaleString('bn-BD')} টি</td><td><button type="button" className="bh-view-btn" onClick={()=>setPreviewRecord(r)}>দেখুন</button></td></tr>)}</tbody></table></div> : <p className="bh-empty-chart">এখনো কোনো জমির তথ্য সংরক্ষণ করা হয়নি।</p>}
-          </article>
-          <article className="bh-panel bh-quick-panel">
-            <h3><span>⚡</span> দ্রুত কাজের সুবিধা</h3>
-            <div className="bh-quick-grid">
-              <button type="button" onClick={()=>{setForm({...emptyForm});setEditingRecord(null);setPendingFiles([]);setShowForm(true);document.getElementById('records-section')?.scrollIntoView({behavior:'smooth'})}}><b>＋</b>নতুন জমি যোগ করুন</button>
-              <button type="button" onClick={()=>{document.getElementById('land-search')?.focus();document.getElementById('records-section')?.scrollIntoView({behavior:'smooth'})}}><b>⌕</b>সার্চ করুন</button>
-              <button type="button" disabled={!records.length} onClick={()=>setPrintRecord(records)}><b>▣</b>সম্মিলিত PDF</button>
-              <button type="button" onClick={exportRecordsCsv} disabled={!records.length}><b>⇩</b>CSV Export</button>
-            </div>
-          </article>
-        </section>
-
-        {message && (
-          <div className="notice">
-            {message}
-            <button onClick={() => setMessage('')}><X size={15} /></button>
-          </div>
-        )}
-
-        <div className="toolbar">
-          <div className="search">
-            <Search size={18} />
-            <input
-              id="land-search"
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="দলিল, মৌজা, নাম বা ফাইল দিয়ে খুঁজুন"
-            />
-          </div>
-
-          <button
-            className="primary"
-            onClick={() => {
-              if (showForm) {
-                resetForm()
-              } else {
-                setForm({ ...emptyForm })
-                setEditingRecord(null)
-                setPendingFiles([])
-                setShowForm(true)
-              }
-            }}
-          >
-            {showForm ? <X size={18} /> : <Plus size={18} />}
-            {showForm ? 'ফর্ম বন্ধ করুন' : 'নতুন জমির তথ্য'}
-          </button>
-        </div>
 
         {showForm && (
           <form className="form-card" onSubmit={saveRecord}>
@@ -1826,6 +1658,79 @@ function App() {
           </form>
         )}
 
+        <section className="bh-stat-grid" aria-label="জমির সারসংক্ষেপ">
+          <article className="bh-stat bh-stat-blue"><span className="bh-stat-icon">▤</span><div><small>মোট রেকর্ড</small><strong>{dashboardStats.recordCount.toLocaleString('bn-BD')}</strong><small>টি জমির তথ্য</small></div></article>
+          <article className="bh-stat bh-stat-green"><span className="bh-stat-icon">🌾</span><div><small>মোট জমি</small><strong>{dashboardStats.totalLand}</strong><small>একক অনুযায়ী হিসাব</small></div></article>
+          <article className="bh-stat bh-stat-orange"><span className="bh-stat-icon">⌂</span><div><small>ক্রয়/নিজস্ব জমি</small><strong>{dashboardStats.ownedLand}</strong><small>একক অনুযায়ী হিসাব</small></div></article>
+          <article className="bh-stat bh-stat-purple"><span className="bh-stat-icon">▰</span><div><small>সংযুক্ত কাগজপত্র</small><strong>{dashboardStats.fileCount.toLocaleString('bn-BD')}</strong><small>টি ফাইল সংরক্ষিত</small></div></article>
+        </section>
+
+        <section className="bh-chart-grid">
+          <article className="bh-panel">
+            <h3><span>▥</span> জমির একক অনুযায়ী পরিসংখ্যান</h3>
+            <div className="bh-bar-chart">
+              {chartStats.landRows.length ? chartStats.landRows.map((row, index) => <div className="bh-bar-item" key={row.unit}><strong>{row.total.toLocaleString('bn-BD',{maximumFractionDigits:2})}</strong><div className="bh-bar-track"><i style={{height:`${Math.max(5, chartStats.maxLand ? row.total/chartStats.maxLand*100 : 0)}%`}} /></div><small>{row.unit}</small></div>) : <p className="bh-empty-chart">জমির পরিমাণের তথ্য পাওয়া যায়নি।</p>}
+            </div>
+            <p className="bh-chart-note">প্রতিটি এককের হিসাব আলাদাভাবে দেখানো হয়েছে</p>
+          </article>
+          <article className="bh-panel">
+            <h3><span>◉</span> মৌজা অনুযায়ী জমির রেকর্ড</h3>
+            {chartStats.topMouzas.length ? <div className="bh-mouza-list">{chartStats.topMouzas.slice(0,4).map((item,index)=><div className="bh-mouza-row" key={item.name}><span className={`bh-dot dot-${index%4}`} /><div><strong>{item.name}</strong><small>{item.count.toLocaleString('bn-BD')} টি রেকর্ড</small></div><b>{chartStats.maxMouza ? Math.round(item.count/chartStats.maxMouza*100) : 0}%</b></div>)}</div> : <p className="bh-empty-chart">মৌজার তথ্য পাওয়া যায়নি।</p>}
+          </article>
+          <article className="bh-panel">
+            <h3><span>⌁</span> কাগজপত্রের ধরন অনুযায়ী</h3>
+            {chartStats.categories.length ? <div className="bh-category-list">{chartStats.categories.slice(0,5).map((item,index)=><div key={item.name}><div><span>{item.name}</span><b>{item.count.toLocaleString('bn-BD')} টি</b></div><i><em style={{width:`${chartStats.maxCategory ? item.count/chartStats.maxCategory*100 : 0}%`}} /></i></div>)}</div> : <p className="bh-empty-chart">কোনো কাগজপত্র সংযুক্ত নেই।</p>}
+          </article>
+        </section>
+
+        <section className="bh-lower-grid">
+          <article className="bh-panel bh-recent-panel">
+            <div className="bh-panel-heading"><h3><span>◷</span> সাম্প্রতিক জমির রেকর্ড</h3><a href="#records-section" onClick={() => setActivePage('records')}>সব দেখুন →</a></div>
+            {records.length ? <div className="bh-recent-table-wrap"><table className="bh-recent-table"><thead><tr><th>#</th><th>মৌজা</th><th>দাগ নং</th><th>খতিয়ান নং</th><th>মোট জমি</th><th>কাগজপত্র</th><th>দেখুন</th></tr></thead><tbody>{records.slice(0,5).map((r,index)=><tr key={r.id}><td>{(index+1).toLocaleString('bn-BD')}</td><td>{r.mouza || '—'}</td><td>{r.dag_number || '—'}</td><td>{r.khatian_number || '—'}</td><td>{r.total_land ?? '—'} {r.total_land_unit || 'শতক'}</td><td>{(r.land_record_files||[]).length.toLocaleString('bn-BD')} টি</td><td><button type="button" className="bh-view-btn" onClick={()=>setPreviewRecord(r)}>দেখুন</button></td></tr>)}</tbody></table></div> : <p className="bh-empty-chart">এখনো কোনো জমির তথ্য সংরক্ষণ করা হয়নি।</p>}
+          </article>
+          <article className="bh-panel bh-quick-panel">
+            <h3><span>⚡</span> দ্রুত কাজের সুবিধা</h3>
+            <div className="bh-quick-grid">
+              <button type="button" onClick={()=>{setForm({...emptyForm});setEditingRecord(null);setPendingFiles([]);setShowForm(true);setActivePage('dashboard');window.scrollTo({top:0,behavior:'smooth'})}}><b>＋</b>নতুন জমি যোগ করুন</button>
+              <button type="button" onClick={()=>{document.getElementById('land-search')?.focus();document.getElementById('records-section')?.scrollIntoView({behavior:'smooth'})}}><b>⌕</b>সার্চ করুন</button>
+              <button type="button" disabled={!records.length} onClick={()=>setPrintRecord(records)}><b>▣</b>সম্মিলিত PDF</button>
+              <button type="button" onClick={exportRecordsCsv} disabled={!records.length}><b>⇩</b>CSV Export</button>
+            </div>
+          </article>
+        </section>
+
+        {message && activePage === 'dashboard' && (
+          <div className="notice">
+            {message}
+            <button onClick={() => setMessage('')}><X size={15} /></button>
+          </div>
+        )}
+        </>
+        </div>
+
+        <div style={{ display: activePage === 'records' ? 'block' : 'none' }}>
+        <>
+        {message && activePage === 'records' && (
+          <div className="notice">
+            {message}
+            <button onClick={() => setMessage('')}><X size={15} /></button>
+          </div>
+        )}
+
+        <div className="toolbar">
+          <div className="search">
+            <Search size={18} />
+            <input
+              id="land-search"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="দলিল, মৌজা, নাম বা ফাইল দিয়ে খুঁজুন"
+            />
+          </div>
+
+        </div>
+
+
         <section className="records" id="records-section">
           <div className="section-title" style={{ flexWrap: 'wrap', gap: '10px' }}>
             <h2>সংরক্ষিত জমির তথ্য</h2>
@@ -1860,7 +1765,7 @@ function App() {
             <div className="empty">
               <FileText size={38} />
               <b>এখনো কোনো জমির তথ্য নেই</b>
-              <span>নতুন জমির তথ্য বাটনে ক্লিক করে শুরু করুন।</span>
+              <span>ড্যাশবোর্ডের “নতুন জমি যোগ করুন” বাটনে ক্লিক করে শুরু করুন।</span>
             </div>
           ) : (
             <div className="record-grid">
@@ -2119,9 +2024,8 @@ function App() {
           </div>
         )}
 
-        </>}
+        </>
         <style>{`
-          .bh-map-page{margin:0 0 22px}.bh-map-hero{display:flex;justify-content:space-between;align-items:center;padding:22px 25px;border-radius:16px;background:linear-gradient(110deg,#08743b,#16a34a);color:#fff;margin-bottom:14px}.bh-map-hero span{font-size:12px;opacity:.85}.bh-map-hero h2{margin:5px 0;font-size:26px}.bh-map-hero p{margin:0;font-size:13px}.bh-map-toolbar{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:13px}.bh-map-toolbar button,.bh-map-actions button{border:1px solid #cbded1;border-radius:9px;background:#fff;padding:10px 15px;color:#20543a;font-weight:700;cursor:pointer}.bh-map-toolbar button.selected,.bh-map-toolbar .bh-map-gps{background:#087b40;color:#fff;border-color:#087b40}.bh-map-layout{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(250px,.8fr);gap:14px}.bh-map-card,.bh-map-side{background:#fff;border:1px solid #dce9df;border-radius:14px;overflow:hidden;box-shadow:0 4px 16px #163d1d0a}.bh-leaflet-map{height:510px;width:100%;background:#e8f0e9;z-index:1}.bh-map-help{padding:10px 13px;background:#f3faf5;color:#52645a;font-size:12px}.bh-map-actions{display:flex;gap:8px;padding:10px}.bh-map-side h3{margin:0;padding:15px;background:#08743b;color:white;font-size:16px}.bh-map-side>p{font-size:12px;color:#66756c;padding:0 14px;line-height:1.7}.bh-map-upload{margin:10px 14px;padding:13px;border:1px dashed #14934c;border-radius:10px;background:#f0faf3;color:#08743b;display:flex;align-items:center;justify-content:center;gap:8px;font-weight:700;cursor:pointer}.bh-map-upload input{display:none}.bh-map-empty,.bh-map-info{margin:12px 14px;padding:14px;border-radius:10px;background:#f5f8f6;color:#68766e;font-size:12px}.bh-map-info{display:grid;gap:5px;color:#345343}.bh-map-info b{font-size:22px;color:#08743b}.bh-map-info small{color:#77847c}.bh-mouza-preview{margin:12px 14px;display:grid;gap:9px;font-size:12px;overflow-wrap:anywhere}.bh-mouza-preview img{width:100%;max-height:300px;object-fit:contain;background:#f3f5f4;border:1px solid #e0e7e2;border-radius:8px}.bh-mouza-preview button{justify-self:start;border:0;background:#fff0f0;color:#b42318;border-radius:7px;padding:7px 10px;cursor:pointer}.bh-map-status{margin-top:13px;padding:12px 15px;border-radius:10px;background:#eaf8ee;color:#245b37;font-size:12px}.bh-map-status span{color:#0b9b4b;margin-right:8px}.bh-map-disclaimer{font-size:11px;color:#758178;line-height:1.7;margin:10px 2px}@media(max-width:850px){.bh-map-layout{grid-template-columns:1fr}.bh-leaflet-map{height:390px}}@media(max-width:560px){.bh-map-hero{padding:16px}.bh-map-hero h2{font-size:21px}.bh-leaflet-map{height:340px}}
 
           #bhumighor-print-report, .report-summary { display: none; }
           @media print {
@@ -2212,6 +2116,8 @@ function App() {
           </div>
         )}
 
+        </div>
+
         {filePreview && (
           <div
             role="presentation"
@@ -2250,13 +2156,15 @@ function App() {
           .bh-content{width:100%;max-width:none!important;margin:0!important;padding:0 25px 22px!important;box-sizing:border-box;min-width:0}
           .bh-topbar{min-height:95px;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 2px;background:linear-gradient(105deg,#e7f7eb,#f5fbff 58%,#e6f2e9);border-bottom:1px solid #d9e8df;margin:0 -25px 18px;padding-left:25px;padding-right:25px}
           .bh-user-welcome{display:flex;align-items:center;gap:13px}.bh-wave{font-size:32px}.bh-user-welcome h1{font-size:24px;margin:0;color:#153d2b}.bh-user-welcome p{margin:4px 0 0;color:#557064;font-size:13px}.bh-user-pill{display:flex;align-items:center;gap:9px;background:#ffffffc9;border:1px solid #e1eae4;border-radius:30px;padding:7px 10px;font-size:12px;max-width:55%}.bh-user-pill>span:nth-child(2){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bh-avatar{width:32px;height:32px;border-radius:50%;background:#e5edf1;display:grid;place-items:center;font-size:20px}.bh-user-pill button{border:0;background:#e9f4ed;color:#17613d;border-radius:20px;padding:7px 10px;font-weight:700;cursor:pointer;white-space:nowrap}
+          .bh-user-pill{cursor:pointer;text-align:left;font-family:inherit}.bh-user-identity{display:flex;flex-direction:column;gap:2px;min-width:0}.bh-user-identity strong{font-size:13px;color:#17452f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bh-user-identity small{font-size:10px;color:#64756c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bh-profile-edit-label{font-size:11px;color:#17613d;background:#e9f4ed;border-radius:18px;padding:7px 9px;white-space:nowrap}.bh-avatar{overflow:hidden}.bh-avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%}.bh-nav button.active{background:#19a83d;color:#fff;box-shadow:0 5px 14px #003d2b55}.bh-profile-page{max-width:980px;margin:25px auto;padding:0 10px}.bh-profile-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}.bh-profile-heading span{font-size:12px;color:#148044}.bh-profile-heading h2{font-size:25px;color:#17452f;margin:4px 0}.bh-profile-heading p{font-size:13px;color:#718178;margin:0}.bh-profile-heading>button{border:1px solid #cfe1d5;background:#fff;color:#17613d;border-radius:9px;padding:10px 13px;cursor:pointer}.bh-profile-card{display:grid;grid-template-columns:260px 1fr;gap:30px;background:#fff;border:1px solid #dce8df;border-radius:16px;padding:28px;box-shadow:0 5px 18px #193e5410}.bh-profile-photo-area{display:flex;flex-direction:column;align-items:center;gap:10px}.bh-profile-photo{width:150px;height:150px;border-radius:50%;overflow:hidden;background:#edf5ef;border:4px solid #d9eee0;display:grid;place-items:center;font-size:55px;color:#6d8a78}.bh-profile-photo img{width:100%;height:100%;object-fit:cover}.bh-photo-upload{background:#e9f5ed;color:#17613d;border-radius:9px;padding:10px 15px;font-size:13px;font-weight:700;cursor:pointer}.bh-photo-upload input{display:none}.bh-profile-photo-area small{font-size:11px;color:#7b8b84}.bh-profile-fields{display:grid;align-content:start;gap:14px}.bh-profile-fields label{display:grid;gap:7px;font-size:13px;font-weight:700;color:#294b38}.bh-profile-fields input{width:100%;box-sizing:border-box;border:1px solid #d5e2da;border-radius:9px;padding:12px;font:inherit;font-weight:400;color:#263d32;background:#fff}.bh-profile-fields input:read-only{background:#f4f7f5;color:#6c7b72}.bh-profile-fields>p{font-size:11px;color:#7b8b84;margin:-5px 0 0}.bh-profile-message{font-size:12px;color:#17613d;background:#edf8f0;border-radius:8px;padding:10px}.bh-profile-save{border:0;background:#08713e;color:#fff;border-radius:9px;padding:12px 18px;font-weight:700;cursor:pointer;justify-self:start}.bh-profile-save:disabled{opacity:.6;cursor:wait}
           .bh-hero{min-height:108px;border-radius:17px;padding:19px 24px;margin:0 0 17px;display:flex;align-items:center;justify-content:space-between;gap:12px;color:#fff;background:linear-gradient(100deg,#08713e,#159b4c 55%,#b5dcae);box-shadow:0 7px 18px #0b62301b;overflow:hidden}.bh-hero span{font-size:11px;opacity:.85}.bh-hero h2{font-size:22px;margin:5px 0}.bh-hero p{font-size:12px;margin:0;opacity:.9}.bh-hero img{width:82px;height:82px;object-fit:contain;background:#ffffffed;border-radius:50%;padding:7px}
           .bh-stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:17px}.bh-stat{display:flex;align-items:center;gap:12px;min-width:0;padding:15px;border-radius:15px;border:1px solid #dce8ee;box-shadow:0 4px 12px #1d3b5010}.bh-stat>div{min-width:0}.bh-stat-icon{width:48px;height:48px;flex:0 0 48px;border-radius:50%;display:grid;place-items:center;font-size:24px;font-weight:800}.bh-stat small{display:block;color:#52616b;font-size:11px}.bh-stat strong{display:block;font-size:21px;line-height:1.5;color:#122f25;overflow-wrap:anywhere}.bh-stat-blue{background:#e5f2ff;border-color:#b8d9fb}.bh-stat-blue .bh-stat-icon{background:#1479e8;color:white}.bh-stat-green{background:#e5f8e8;border-color:#b6e8bd}.bh-stat-green .bh-stat-icon{background:#0b8b39;color:white}.bh-stat-orange{background:#fff1d8;border-color:#f5d39a}.bh-stat-orange .bh-stat-icon{background:#f28a0b;color:white}.bh-stat-purple{background:#f0e7ff;border-color:#d7c1ff}.bh-stat-purple .bh-stat-icon{background:#7738d7;color:white}
           .bh-chart-grid{display:grid;grid-template-columns:1.1fr 1fr 1fr;gap:13px;margin-bottom:17px}.bh-panel{background:#fff;border:1px solid #dce6ee;border-radius:15px;overflow:hidden;box-shadow:0 4px 12px #193e5410;min-width:0}.bh-panel>h3,.bh-panel-heading{margin:0;padding:12px 15px;background:#08713e;color:#fff;font-size:15px;font-weight:800;display:flex;align-items:center;gap:9px}.bh-panel>h3 span,.bh-panel-heading h3 span{font-size:19px}.bh-bar-chart{height:180px;display:flex;align-items:stretch;justify-content:space-around;gap:10px;padding:18px 17px 0;border-bottom:1px solid #e5edf3;background:repeating-linear-gradient(to bottom,transparent 0,transparent 43px,#edf2f7 44px)}.bh-bar-item{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:5px}.bh-bar-item strong{font-size:11px;color:#253a32}.bh-bar-track{height:115px;width:min(48px,80%);display:flex;align-items:flex-end;background:#edf3f8;border-radius:7px 7px 0 0;overflow:hidden}.bh-bar-track i{width:100%;display:block;border-radius:7px 7px 0 0;background:linear-gradient(180deg,#2498f4,#0870d4)}.bh-bar-item:nth-child(2) .bh-bar-track i{background:linear-gradient(180deg,#62d83e,#1ba52d)}.bh-bar-item:nth-child(3) .bh-bar-track i{background:linear-gradient(180deg,#ffb53b,#f28a0b)}.bh-bar-item:nth-child(4) .bh-bar-track i{background:linear-gradient(180deg,#a76af3,#7738d7)}.bh-bar-item small{font-size:11px;padding:5px 0;color:#405249}.bh-chart-note{font-size:10px;color:#7b8b84;margin:8px 14px 12px}.bh-empty-chart{font-size:12px;color:#718178;padding:16px}.bh-mouza-list{padding:12px 14px;display:grid;gap:13px}.bh-mouza-row{display:flex;align-items:center;gap:9px}.bh-dot{width:12px;height:12px;border-radius:4px;flex:0 0 12px;background:#1686ec}.dot-1{background:#1caa42}.dot-2{background:#f49a17}.dot-3{background:#8850dc}.bh-mouza-row div{min-width:0;flex:1}.bh-mouza-row strong,.bh-mouza-row small{display:block;overflow-wrap:anywhere}.bh-mouza-row strong{font-size:12px;color:#263d32}.bh-mouza-row small{font-size:10px;color:#75837c;margin-top:3px}.bh-mouza-row>b{font-size:11px;color:#52645a}.bh-category-list{padding:13px 14px;display:grid;gap:14px}.bh-category-list>div>div{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#35483f;margin-bottom:5px}.bh-category-list>div>div span{overflow-wrap:anywhere}.bh-category-list>div>div b{white-space:nowrap}.bh-category-list i{display:block;height:8px;border-radius:20px;background:#edf2f5;overflow:hidden}.bh-category-list em{display:block;height:100%;background:linear-gradient(90deg,#13a44b,#66c84a);border-radius:20px}
           .bh-lower-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(245px,.9fr);gap:13px;margin-bottom:20px}.bh-panel-heading{justify-content:space-between}.bh-panel-heading h3{font-size:15px;margin:0;display:flex;align-items:center;gap:8px}.bh-panel-heading a{font-size:11px;color:white;text-decoration:none;border:1px solid #ffffffa8;border-radius:8px;padding:6px 9px;white-space:nowrap}.bh-recent-table-wrap{overflow:auto;padding:10px}.bh-recent-table{border-collapse:collapse;width:100%;font-size:11px;white-space:nowrap}.bh-recent-table th{background:#f0f5fa;color:#34463e;font-weight:800}.bh-recent-table th,.bh-recent-table td{padding:9px 8px;border:1px solid #e0e9f0;text-align:left}.bh-recent-table td{color:#405148}.bh-view-btn{border:0;border-radius:7px;background:#e5f1ff;color:#0871d6;padding:5px 9px;font-size:10px;font-weight:700;cursor:pointer}.bh-quick-grid{padding:11px;display:grid;grid-template-columns:1fr 1fr;gap:8px}.bh-quick-grid button{min-height:82px;border:1px solid #cce7d3;border-radius:12px;background:#e8f9ed;color:#194c30;font-weight:700;font-size:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;cursor:pointer}.bh-quick-grid button:nth-child(2){background:#e8f3ff;border-color:#c5dcfb;color:#145a9d}.bh-quick-grid button:nth-child(3){background:#f2eaff;border-color:#dcc8ff;color:#6530a8}.bh-quick-grid button:nth-child(4){background:#e2fbf3;border-color:#b8edda;color:#08754b}.bh-quick-grid button:disabled{opacity:.45;cursor:not-allowed}.bh-quick-grid b{font-size:24px;line-height:1}
           #records-section{scroll-margin-top:16px}.bh-content .toolbar{margin-top:18px}.bh-content .records{margin-top:18px}.bh-content .records>.section-title{border-bottom:1px solid #dce8df;padding-bottom:10px}.bh-content>footer{text-align:center;color:#718178;font-size:11px;padding:18px}
           @media(max-width:1050px){.bh-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.bh-chart-grid{grid-template-columns:1fr 1fr}.bh-chart-grid .bh-panel:first-child{grid-column:span 2}}
-          @media(max-width:760px){.bh-app-shell{grid-template-columns:1fr!important}.bh-sidebar{position:relative;height:auto;min-height:0}.bh-brand{flex-direction:row;justify-content:flex-start;text-align:left;padding:9px 14px}.bh-brand img{width:45px;height:45px}.bh-brand strong{font-size:18px}.bh-brand span,.bh-brand small{display:none}.bh-nav{display:flex;overflow:auto;padding:7px;gap:6px}.bh-nav a,.bh-nav button{white-space:nowrap;padding:9px 11px;font-size:12px}.bh-nav a span,.bh-nav button span{font-size:16px;width:auto}.bh-sidebar-bottom{display:none}.bh-content{padding:0 12px 18px!important}.bh-topbar{margin:0 -12px 12px;padding:10px 12px;min-height:70px}.bh-user-welcome h1{font-size:18px}.bh-user-welcome p{font-size:10px}.bh-wave{font-size:23px}.bh-user-pill{max-width:48%;font-size:10px}.bh-user-pill button{display:none}.bh-hero{padding:14px}.bh-hero h2{font-size:17px}.bh-hero p{font-size:10px}.bh-hero img{width:58px;height:58px}.bh-stat-grid{gap:8px}.bh-stat{padding:10px;gap:8px}.bh-stat-icon{width:36px;height:36px;flex-basis:36px;font-size:18px}.bh-stat strong{font-size:15px}.bh-stat small{font-size:9px}.bh-chart-grid{grid-template-columns:1fr}.bh-chart-grid .bh-panel:first-child{grid-column:auto}.bh-lower-grid{grid-template-columns:1fr}.bh-panel>h3,.bh-panel-heading{font-size:13px}.bh-recent-table th,.bh-recent-table td{padding:7px 6px}}
+          .bh-user-pill{gap:12px;padding:8px 14px;min-height:64px;max-width:360px}.bh-avatar{width:48px;height:48px;flex:0 0 48px;font-size:23px;display:grid;place-items:center;border-radius:50%;background:#e7f2eb}.bh-user-identity strong{font-size:17px;max-width:220px}.bh-profile-edit-label{font-size:12px;padding:9px 12px}.bh-user-welcome h1{font-size:27px}.bh-settings-card{max-width:650px;display:grid;gap:14px;background:#fff;border:1px solid #dce8df;border-radius:16px;padding:28px;box-shadow:0 5px 18px #193e5410}.bh-settings-card h3{font-size:20px;color:#17452f;margin:0}.bh-settings-card>p{font-size:13px;color:#718178;margin:-7px 0 5px}.bh-settings-card label{display:grid;gap:7px;font-size:13px;font-weight:700;color:#294b38}.bh-settings-card input{width:100%;box-sizing:border-box;border:1px solid #d5e2da;border-radius:9px;padding:12px;font:inherit;font-weight:400;color:#263d32;background:#fff}
+          @media(max-width:760px){.bh-profile-card{grid-template-columns:1fr;padding:20px}.bh-profile-heading{align-items:flex-start;flex-direction:column}.bh-profile-photo{width:125px;height:125px}.bh-user-identity small{display:none}.bh-profile-edit-label{display:none}.bh-app-shell{grid-template-columns:1fr!important}.bh-sidebar{position:relative;height:auto;min-height:0}.bh-brand{flex-direction:row;justify-content:flex-start;text-align:left;padding:9px 14px}.bh-brand img{width:45px;height:45px}.bh-brand strong{font-size:18px}.bh-brand span,.bh-brand small{display:none}.bh-nav{display:flex;overflow:auto;padding:7px;gap:6px}.bh-nav a,.bh-nav button{white-space:nowrap;padding:9px 11px;font-size:12px}.bh-nav a span,.bh-nav button span{font-size:16px;width:auto}.bh-sidebar-bottom{display:none}.bh-content{padding:0 12px 18px!important}.bh-topbar{margin:0 -12px 12px;padding:10px 12px;min-height:70px}.bh-user-welcome h1{font-size:18px}.bh-user-welcome p{font-size:10px}.bh-wave{font-size:23px}.bh-user-pill{max-width:55%;font-size:11px;gap:7px;padding:6px 8px;min-height:54px}.bh-avatar{width:40px;height:40px;flex-basis:40px}.bh-user-identity strong{font-size:13px;max-width:125px}.bh-user-pill button{display:none}.bh-hero{padding:14px}.bh-hero h2{font-size:17px}.bh-hero p{font-size:10px}.bh-hero img{width:58px;height:58px}.bh-stat-grid{gap:8px}.bh-stat{padding:10px;gap:8px}.bh-stat-icon{width:36px;height:36px;flex-basis:36px;font-size:18px}.bh-stat strong{font-size:15px}.bh-stat small{font-size:9px}.bh-chart-grid{grid-template-columns:1fr}.bh-chart-grid .bh-panel:first-child{grid-column:auto}.bh-lower-grid{grid-template-columns:1fr}.bh-panel>h3,.bh-panel-heading{font-size:13px}.bh-recent-table th,.bh-recent-table td{padding:7px 6px}}
         `}</style>
         <footer>Developed by Muktar Graphics</footer>
       </main>
