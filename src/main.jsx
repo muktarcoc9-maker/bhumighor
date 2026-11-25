@@ -11,6 +11,7 @@ import './style.css'
 
 const emptyForm = {
   deed_number: '',
+  deed_date: '',
   donor_name: '',
   recipient_name: '',
   mouza: '',
@@ -114,6 +115,7 @@ function App() {
 
   const [pendingFiles, setPendingFiles] = useState([])
   const [fileCategory, setFileCategory] = useState('জমির দলিল')
+  const [mapAttachmentFile, setMapAttachmentFile] = useState(null)
 
   useEffect(() => {
     let mounted = true
@@ -276,7 +278,7 @@ function App() {
   }, [])
 
   const csvColumns = [
-    'deed_number', 'donor_name', 'recipient_name', 'mouza', 'sheet_number',
+    'deed_number', 'deed_date', 'donor_name', 'recipient_name', 'mouza', 'sheet_number',
     'dag_type', 'dag_number', 'khatian_type', 'khatian_number',
     'mutation_case_number', 'holding_number', 'total_land', 'owned_land',
     'total_land_unit', 'owned_land_unit'
@@ -583,6 +585,7 @@ function App() {
   function resetForm() {
     setForm({ ...emptyForm })
     setPendingFiles([])
+    setMapAttachmentFile(null)
     setFileCategory('জমির দলিল')
     setEditingRecord(null)
     setShowForm(false)
@@ -593,6 +596,7 @@ function App() {
 
     setForm({
       deed_number: record.deed_number || '',
+      deed_date: record.deed_date || '',
       donor_name: record.donor_name || '',
       recipient_name: record.recipient_name || '',
       mouza: record.mouza || '',
@@ -610,8 +614,9 @@ function App() {
     })
 
     setPendingFiles([])
+    setMapAttachmentFile(null)
     setShowForm(true)
-    setActivePage('dashboard')
+    setActivePage('records')
     setMessage('জমির তথ্য সংশোধন করুন।')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -757,6 +762,36 @@ function App() {
 
     if (uploadedCount > 0) {
       setPendingFiles(old => old.slice(uploadedCount))
+    }
+
+    if (mapAttachmentFile?.file && !uploadErrorMessage) {
+      const mapFile = mapAttachmentFile.file
+      const safeMapName = mapFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const mapPath = `${session.user.id}/${savedRecord.id}/maps/${crypto.randomUUID()}-${safeMapName}`
+      const { error: mapUploadError } = await supabase.storage
+        .from(STORAGE_BUCKET)
+        .upload(mapPath, mapFile, { upsert: false })
+
+      if (mapUploadError) {
+        uploadErrorMessage = `নকশা আপলোড হয়নি: ${mapUploadError.message}`
+      } else {
+        const { error: mapSaveError } = await supabase
+          .from('land_record_maps')
+          .upsert({
+            user_id: session.user.id,
+            land_record_id: savedRecord.id,
+            map_points: [],
+            map_file_path: mapPath,
+            map_file_name: mapFile.name,
+            map_file_type: mapFile.type,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'user_id,land_record_id' })
+
+        if (mapSaveError) {
+          await supabase.storage.from(STORAGE_BUCKET).remove([mapPath])
+          uploadErrorMessage = `নকশার তথ্য সংরক্ষণ হয়নি: ${mapSaveError.message}`
+        }
+      }
     }
 
     await loadRecords()
@@ -1421,6 +1456,61 @@ function App() {
           <img src="/logo.png" alt="ভূমিঘর লোগো" />
         </section>
 
+
+
+        <section className="bh-stat-grid" aria-label="জমির সারসংক্ষেপ">
+          <article className="bh-stat bh-stat-blue"><span className="bh-stat-icon">▤</span><div><small>মোট রেকর্ড</small><strong>{dashboardStats.recordCount.toLocaleString('bn-BD')}</strong><small>টি জমির তথ্য</small></div></article>
+          <article className="bh-stat bh-stat-green"><span className="bh-stat-icon">🌾</span><div><small>মোট জমি</small><strong>{dashboardStats.totalLand}</strong><small>একক অনুযায়ী হিসাব</small></div></article>
+          <article className="bh-stat bh-stat-orange"><span className="bh-stat-icon">⌂</span><div><small>ক্রয়/নিজস্ব জমি</small><strong>{dashboardStats.ownedLand}</strong><small>একক অনুযায়ী হিসাব</small></div></article>
+          <article className="bh-stat bh-stat-purple"><span className="bh-stat-icon">▰</span><div><small>সংযুক্ত কাগজপত্র</small><strong>{dashboardStats.fileCount.toLocaleString('bn-BD')}</strong><small>টি ফাইল সংরক্ষিত</small></div></article>
+        </section>
+
+        <section className="bh-chart-grid">
+          <article className="bh-panel">
+            <h3><span>▥</span> জমির একক অনুযায়ী পরিসংখ্যান</h3>
+            <div className="bh-bar-chart">
+              {chartStats.landRows.length ? chartStats.landRows.map((row, index) => <div className="bh-bar-item" key={row.unit}><strong>{row.total.toLocaleString('bn-BD',{maximumFractionDigits:2})}</strong><div className="bh-bar-track"><i style={{height:`${Math.max(5, chartStats.maxLand ? row.total/chartStats.maxLand*100 : 0)}%`}} /></div><small>{row.unit}</small></div>) : <p className="bh-empty-chart">জমির পরিমাণের তথ্য পাওয়া যায়নি।</p>}
+            </div>
+            <p className="bh-chart-note">প্রতিটি এককের হিসাব আলাদাভাবে দেখানো হয়েছে</p>
+          </article>
+          <article className="bh-panel">
+            <h3><span>◉</span> মৌজা অনুযায়ী জমির রেকর্ড</h3>
+            {chartStats.topMouzas.length ? <div className="bh-mouza-list">{chartStats.topMouzas.slice(0,4).map((item,index)=><div className="bh-mouza-row" key={item.name}><span className={`bh-dot dot-${index%4}`} /><div><strong>{item.name}</strong><small>{item.count.toLocaleString('bn-BD')} টি রেকর্ড</small></div><b>{chartStats.maxMouza ? Math.round(item.count/chartStats.maxMouza*100) : 0}%</b></div>)}</div> : <p className="bh-empty-chart">মৌজার তথ্য পাওয়া যায়নি।</p>}
+          </article>
+        </section>
+
+        <section className="bh-lower-grid">
+          <article className="bh-panel bh-recent-panel">
+            <div className="bh-panel-heading"><h3><span>◷</span> সাম্প্রতিক জমির রেকর্ড</h3><a href="#records-section" onClick={() => setActivePage('records')}>সব দেখুন →</a></div>
+            {records.length ? <div className="bh-recent-table-wrap"><table className="bh-recent-table"><thead><tr><th>#</th><th>মৌজা</th><th>দাগ নং</th><th>খতিয়ান নং</th><th>মোট জমি</th><th>কাগজপত্র</th><th>দেখুন</th></tr></thead><tbody>{records.slice(0,5).map((r,index)=><tr key={r.id}><td>{(index+1).toLocaleString('bn-BD')}</td><td>{r.mouza || '—'}</td><td>{r.dag_number || '—'}</td><td>{r.khatian_number || '—'}</td><td>{r.total_land ?? '—'} {r.total_land_unit || 'শতক'}</td><td>{(r.land_record_files||[]).length.toLocaleString('bn-BD')} টি</td><td><button type="button" className="bh-view-btn" onClick={()=>setPreviewRecord(r)}>দেখুন</button></td></tr>)}</tbody></table></div> : <p className="bh-empty-chart">এখনো কোনো জমির তথ্য সংরক্ষণ করা হয়নি।</p>}
+          </article>
+          <article className="bh-panel bh-quick-panel">
+            <h3><span>⚡</span> দ্রুত কাজের সুবিধা</h3>
+            <div className="bh-quick-grid">
+              <button type="button" onClick={()=>{setForm({...emptyForm});setEditingRecord(null);setPendingFiles([]);setMapAttachmentFile(null);setShowForm(true);setActivePage('records');window.scrollTo({top:0,behavior:'smooth'})}}><b>＋</b>নতুন জমি যোগ করুন</button>
+              <button type="button" onClick={exportRecordsCsv} disabled={!records.length}><b>⇩</b>CSV Export</button>
+            </div>
+          </article>
+        </section>
+
+        {message && activePage === 'dashboard' && (
+          <div className="notice">
+            {message}
+            <button onClick={() => setMessage('')}><X size={15} /></button>
+          </div>
+        )}
+        </>
+        </div>
+
+        <div style={{ display: activePage === 'records' || Boolean(previewRecord) ? 'block' : 'none' }}>
+        <>
+        {message && activePage === 'records' && (
+          <div className="notice">
+            {message}
+            <button onClick={() => setMessage('')}><X size={15} /></button>
+          </div>
+        )}
+
         {showForm && (
           <form className="form-card" onSubmit={saveRecord}>
             <div className="form-head">
@@ -1438,203 +1528,152 @@ function App() {
               </button>
             </div>
 
-            <div className="form-grid">
-              {Object.entries(labels).map(([key, label]) => (
-                <label key={key}>
-                  {label}
-                  <input
-                    type="text"
-                    value={form[key]}
-                    onChange={e =>
-                      setForm({ ...form, [key]: e.target.value })
-                    }
-                  />
-                </label>
-              ))}
-
+            <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '14px' }}>
               <label>
-                দাগের ধরন
-                <select
-                  value={form.dag_type}
-                  onChange={e =>
-                    setForm({ ...form, dag_type: e.target.value })
-                  }
-                >
-                  {['CS', 'SA', 'RS', 'RBS'].map(x => (
-                    <option key={x} value={x}>{x}</option>
-                  ))}
-                </select>
+                দলিল নং
+                <input value={form.deed_number} onChange={e => setForm({ ...form, deed_number: e.target.value })} placeholder="দলিল নম্বর লিখুন" />
+              </label>
+              <label>
+                তারিখ
+                <input type="date" value={form.deed_date} onChange={e => setForm({ ...form, deed_date: e.target.value })} />
               </label>
 
               <label>
+                গ্রহীতার নাম
+                <input value={form.recipient_name} onChange={e => setForm({ ...form, recipient_name: e.target.value })} placeholder="গ্রহীতার নাম লিখুন" />
+              </label>
+              <label>
+                দাতার নাম
+                <input value={form.donor_name} onChange={e => setForm({ ...form, donor_name: e.target.value })} placeholder="দাতার নাম লিখুন" />
+              </label>
+
+              <label>
+                দাগের ধরন
+                <select value={form.dag_type} onChange={e => setForm({ ...form, dag_type: e.target.value })}>
+                  {['CS', 'SA', 'RS', 'RBS'].map(x => <option key={x} value={x}>{x}</option>)}
+                </select>
+              </label>
+              <label>
                 দাগ নম্বর
-                <input
-                  value={form.dag_number}
-                  onChange={e =>
-                    setForm({ ...form, dag_number: e.target.value })
-                  }
-                  placeholder="দাগ নম্বর লিখুন"
-                />
+                <input value={form.dag_number} onChange={e => setForm({ ...form, dag_number: e.target.value })} placeholder="দাগ নম্বর লিখুন" />
               </label>
 
               <label>
                 খতিয়ানের ধরন
-                <select
-                  value={form.khatian_type}
-                  onChange={e =>
-                    setForm({ ...form, khatian_type: e.target.value })
-                  }
-                >
-                  {['CS', 'SA', 'RS', 'RBS'].map(x => (
-                    <option key={x} value={x}>{x}</option>
-                  ))}
+                <select value={form.khatian_type} onChange={e => setForm({ ...form, khatian_type: e.target.value })}>
+                  {['CS', 'SA', 'RS', 'RBS'].map(x => <option key={x} value={x}>{x}</option>)}
                 </select>
               </label>
-
               <label>
                 খতিয়ান নম্বর
-                <input
-                  value={form.khatian_number}
-                  onChange={e =>
-                    setForm({ ...form, khatian_number: e.target.value })
-                  }
-                  placeholder="খতিয়ান নম্বর লিখুন"
-                />
+                <input value={form.khatian_number} onChange={e => setForm({ ...form, khatian_number: e.target.value })} placeholder="খতিয়ান নম্বর লিখুন" />
               </label>
 
               <label>
-                মোট জমির পরিমাণ
-                <input
-                  inputMode="decimal"
-                  value={form.total_land}
-                  onChange={e =>
-                    setForm({ ...form, total_land: e.target.value })
-                  }
-                  placeholder="পরিমাণ লিখুন"
-                />
+                মোট জমি
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input style={{ minWidth: 0, flex: 1 }} inputMode="decimal" value={form.total_land} onChange={e => setForm({ ...form, total_land: e.target.value })} placeholder="জমির পরিমাণ" />
+                  <select style={{ width: '105px' }} value={form.total_land_unit} onChange={e => setForm({ ...form, total_land_unit: e.target.value })}>
+                    {landUnits.map(unit => <option key={unit}>{unit}</option>)}
+                  </select>
+                </div>
+              </label>
+              <label>
+                মৌজা
+                <input value={form.mouza} onChange={e => setForm({ ...form, mouza: e.target.value })} placeholder="মৌজার নাম লিখুন" />
               </label>
 
               <label>
-                মোট জমির একক
-                <select
-                  value={form.total_land_unit}
-                  onChange={e =>
-                    setForm({ ...form, total_land_unit: e.target.value })
-                  }
-                >
-                  {landUnits.map(unit => (
-                    <option key={unit}>{unit}</option>
-                  ))}
-                </select>
+                নামজারী কেস নম্বর
+                <input value={form.mutation_case_number} onChange={e => setForm({ ...form, mutation_case_number: e.target.value })} placeholder="নামজারী কেস নম্বর লিখুন" />
+              </label>
+              <label>
+                সীট নম্বর
+                <input value={form.sheet_number} onChange={e => setForm({ ...form, sheet_number: e.target.value })} placeholder="সীট নম্বর লিখুন" />
               </label>
 
+              <label>
+                হোল্ডিং নম্বর
+                <input value={form.holding_number} onChange={e => setForm({ ...form, holding_number: e.target.value })} placeholder="হোল্ডিং নম্বর লিখুন" />
+              </label>
+
+              <div className="upload-section" style={{ margin: 0 }}>
+                <h3><FolderOpen size={19} /> জমির কাগজপত্র সংযুক্ত করুন</h3>
+                <p className="muted">ফাইলের ধরন নির্বাচন করে এক বা একাধিক PDF/JPG/PNG ফাইল যোগ করুন।</p>
+                <div className="upload-controls">
+                  <label>
+                    ফাইলের ধরন
+                    <select value={fileCategory} onChange={e => setFileCategory(e.target.value)} disabled={saving}>
+                      {fileCategories.map(category => <option key={category} value={category}>{category}</option>)}
+                    </select>
+                  </label>
+                  <label className="choose-files">
+                    <span><Upload size={17} /> ফাইল নির্বাচন করুন</span>
+                    <input type="file" accept=".pdf,image/jpeg,image/png" multiple disabled={saving} onChange={addSelectedFiles} />
+                  </label>
+                </div>
+                <small className="file-help">প্রতিটি ফাইল সর্বোচ্চ ৫০ MB। আপনার Supabase Storage-এর সীমাও প্রযোজ্য।</small>
+                {pendingFiles.length > 0 && (
+                  <div className="pending-list">
+                    <b>আপলোডের জন্য নির্বাচিত ফাইল ({pendingFiles.length})</b>
+                    {pendingFiles.map(item => (
+                      <div className="pending-file" key={item.id}>
+                        <FileText size={18} />
+                        <div><strong>{item.file.name}</strong><small>{item.category} · {(item.file.size / (1024 * 1024)).toFixed(2)} MB</small></div>
+                        <button type="button" className="icon-btn" onClick={() => removePendingFile(item.id)} title="তালিকা থেকে বাদ দিন" disabled={saving}><X size={17} /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {editingRecord && <small className="file-help">আগের সংরক্ষিত ফাইলগুলো অক্ষত থাকবে। নতুন ফাইল যোগ করতে উপরের অংশ ব্যবহার করুন।</small>}
+              </div>
+            </div>
+
+            <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '14px', marginTop: '14px' }}>
               <label>
                 ক্রয়/নিজস্ব জমির পরিমাণ
-                <input
-                  inputMode="decimal"
-                  value={form.owned_land}
-                  onChange={e =>
-                    setForm({ ...form, owned_land: e.target.value })
-                  }
-                  placeholder="পরিমাণ লিখুন"
-                />
-              </label>
-
-              <label>
-                ক্রয়/নিজস্ব জমির একক
-                <select
-                  value={form.owned_land_unit}
-                  onChange={e =>
-                    setForm({ ...form, owned_land_unit: e.target.value })
-                  }
-                >
-                  {landUnits.map(unit => (
-                    <option key={unit}>{unit}</option>
-                  ))}
-                </select>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input style={{ minWidth: 0, flex: 1 }} inputMode="decimal" value={form.owned_land} onChange={e => setForm({ ...form, owned_land: e.target.value })} placeholder="পরিমাণ লিখুন" />
+                  <select style={{ width: '105px' }} value={form.owned_land_unit} onChange={e => setForm({ ...form, owned_land_unit: e.target.value })}>
+                    {landUnits.map(unit => <option key={unit}>{unit}</option>)}
+                  </select>
+                </div>
               </label>
             </div>
 
-            <div className="upload-section">
-              <h3>
-                <FolderOpen size={19} /> জমির কাগজপত্র সংযুক্ত করুন
-              </h3>
-
-              <p className="muted">
-                ফাইলের ধরন নির্বাচন করে এক বা একাধিক PDF/JPG/PNG ফাইল যোগ করুন।
-              </p>
-
-              <div className="upload-controls">
-                <label>
-                  ফাইলের ধরন
-                  <select
-                    value={fileCategory}
-                    onChange={e => setFileCategory(e.target.value)}
-                    disabled={saving}
-                  >
-                    {fileCategories.map(category => (
-                      <option key={category} value={category}>
-                        {category}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="choose-files">
-                  <span>
-                    <Upload size={17} /> ফাইল নির্বাচন করুন
-                  </span>
-
-                  <input
-                    type="file"
-                    accept=".pdf,image/jpeg,image/png"
-                    multiple
-                    disabled={saving}
-                    onChange={addSelectedFiles}
-                  />
-                </label>
-              </div>
-
-              <small className="file-help">
-                প্রতিটি ফাইল সর্বোচ্চ ৫০ MB। আপনার Supabase Storage-এর সীমাও প্রযোজ্য।
-              </small>
-
-              {pendingFiles.length > 0 && (
-                <div className="pending-list">
-                  <b>
-                    আপলোডের জন্য নির্বাচিত ফাইল ({pendingFiles.length})
-                  </b>
-
-                  {pendingFiles.map(item => (
-                    <div className="pending-file" key={item.id}>
-                      <FileText size={18} />
-
-                      <div>
-                        <strong>{item.file.name}</strong>
-                        <small>
-                          {item.category} · {(item.file.size / (1024 * 1024)).toFixed(2)} MB
-                        </small>
-                      </div>
-
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        onClick={() => removePendingFile(item.id)}
-                        title="তালিকা থেকে বাদ দিন"
-                        disabled={saving}
-                      >
-                        <X size={17} />
-                      </button>
-                    </div>
-                  ))}
+            <div className="upload-section" style={{ marginTop: '16px' }}>
+              <h3><LandPlot size={19} /> মৌজা ও দাগের নকশা সংযুক্ত করুন</h3>
+              <p className="muted">জমির মৌজা/দাগের নকশা PDF, JPG অথবা PNG ফাইলে আপলোড করুন।</p>
+              <label className="choose-files">
+                <span><Upload size={17} /> নকশা নির্বাচন করুন</span>
+                <input
+                  type="file"
+                  accept=".pdf,image/jpeg,image/png"
+                  disabled={saving}
+                  onChange={e => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    const valid = file.type === 'application/pdf' || file.type === 'image/jpeg' || file.type === 'image/png'
+                    if (!valid) {
+                      setMessage('নকশার জন্য শুধু PDF, JPG ও PNG ফাইল দেওয়া যাবে।')
+                    } else if (file.size > 50 * 1024 * 1024) {
+                      setMessage('নকশার ফাইলটি ৫০ MB-এর বেশি।')
+                    } else {
+                      setMapAttachmentFile({ file })
+                      setMessage('')
+                    }
+                    e.target.value = ''
+                  }}
+                />
+              </label>
+              {mapAttachmentFile?.file && (
+                <div className="pending-file" style={{ marginTop: '10px' }}>
+                  <FileText size={18} />
+                  <div><strong>{mapAttachmentFile.file.name}</strong><small>নকশা · {(mapAttachmentFile.file.size / (1024 * 1024)).toFixed(2)} MB</small></div>
+                  <button type="button" className="icon-btn" onClick={() => setMapAttachmentFile(null)} disabled={saving} title="নকশা বাদ দিন"><X size={17} /></button>
                 </div>
               )}
-
-              {editingRecord && (
-                <small className="file-help">
-                  আগের সংরক্ষিত ফাইলগুলো অক্ষত থাকবে। নতুন ফাইল যোগ করতে উপরের অংশ ব্যবহার করুন।
-                </small>
-              )}
+              {editingRecord && <small className="file-help">আগে সংরক্ষিত নকশা নতুন নকশা আপলোড না করলে অপরিবর্তিত থাকবে।</small>}
             </div>
 
             <div className="card-actions">
@@ -1656,65 +1695,6 @@ function App() {
               </button>
             </div>
           </form>
-        )}
-
-        <section className="bh-stat-grid" aria-label="জমির সারসংক্ষেপ">
-          <article className="bh-stat bh-stat-blue"><span className="bh-stat-icon">▤</span><div><small>মোট রেকর্ড</small><strong>{dashboardStats.recordCount.toLocaleString('bn-BD')}</strong><small>টি জমির তথ্য</small></div></article>
-          <article className="bh-stat bh-stat-green"><span className="bh-stat-icon">🌾</span><div><small>মোট জমি</small><strong>{dashboardStats.totalLand}</strong><small>একক অনুযায়ী হিসাব</small></div></article>
-          <article className="bh-stat bh-stat-orange"><span className="bh-stat-icon">⌂</span><div><small>ক্রয়/নিজস্ব জমি</small><strong>{dashboardStats.ownedLand}</strong><small>একক অনুযায়ী হিসাব</small></div></article>
-          <article className="bh-stat bh-stat-purple"><span className="bh-stat-icon">▰</span><div><small>সংযুক্ত কাগজপত্র</small><strong>{dashboardStats.fileCount.toLocaleString('bn-BD')}</strong><small>টি ফাইল সংরক্ষিত</small></div></article>
-        </section>
-
-        <section className="bh-chart-grid">
-          <article className="bh-panel">
-            <h3><span>▥</span> জমির একক অনুযায়ী পরিসংখ্যান</h3>
-            <div className="bh-bar-chart">
-              {chartStats.landRows.length ? chartStats.landRows.map((row, index) => <div className="bh-bar-item" key={row.unit}><strong>{row.total.toLocaleString('bn-BD',{maximumFractionDigits:2})}</strong><div className="bh-bar-track"><i style={{height:`${Math.max(5, chartStats.maxLand ? row.total/chartStats.maxLand*100 : 0)}%`}} /></div><small>{row.unit}</small></div>) : <p className="bh-empty-chart">জমির পরিমাণের তথ্য পাওয়া যায়নি।</p>}
-            </div>
-            <p className="bh-chart-note">প্রতিটি এককের হিসাব আলাদাভাবে দেখানো হয়েছে</p>
-          </article>
-          <article className="bh-panel">
-            <h3><span>◉</span> মৌজা অনুযায়ী জমির রেকর্ড</h3>
-            {chartStats.topMouzas.length ? <div className="bh-mouza-list">{chartStats.topMouzas.slice(0,4).map((item,index)=><div className="bh-mouza-row" key={item.name}><span className={`bh-dot dot-${index%4}`} /><div><strong>{item.name}</strong><small>{item.count.toLocaleString('bn-BD')} টি রেকর্ড</small></div><b>{chartStats.maxMouza ? Math.round(item.count/chartStats.maxMouza*100) : 0}%</b></div>)}</div> : <p className="bh-empty-chart">মৌজার তথ্য পাওয়া যায়নি।</p>}
-          </article>
-          <article className="bh-panel">
-            <h3><span>⌁</span> কাগজপত্রের ধরন অনুযায়ী</h3>
-            {chartStats.categories.length ? <div className="bh-category-list">{chartStats.categories.slice(0,5).map((item,index)=><div key={item.name}><div><span>{item.name}</span><b>{item.count.toLocaleString('bn-BD')} টি</b></div><i><em style={{width:`${chartStats.maxCategory ? item.count/chartStats.maxCategory*100 : 0}%`}} /></i></div>)}</div> : <p className="bh-empty-chart">কোনো কাগজপত্র সংযুক্ত নেই।</p>}
-          </article>
-        </section>
-
-        <section className="bh-lower-grid">
-          <article className="bh-panel bh-recent-panel">
-            <div className="bh-panel-heading"><h3><span>◷</span> সাম্প্রতিক জমির রেকর্ড</h3><a href="#records-section" onClick={() => setActivePage('records')}>সব দেখুন →</a></div>
-            {records.length ? <div className="bh-recent-table-wrap"><table className="bh-recent-table"><thead><tr><th>#</th><th>মৌজা</th><th>দাগ নং</th><th>খতিয়ান নং</th><th>মোট জমি</th><th>কাগজপত্র</th><th>দেখুন</th></tr></thead><tbody>{records.slice(0,5).map((r,index)=><tr key={r.id}><td>{(index+1).toLocaleString('bn-BD')}</td><td>{r.mouza || '—'}</td><td>{r.dag_number || '—'}</td><td>{r.khatian_number || '—'}</td><td>{r.total_land ?? '—'} {r.total_land_unit || 'শতক'}</td><td>{(r.land_record_files||[]).length.toLocaleString('bn-BD')} টি</td><td><button type="button" className="bh-view-btn" onClick={()=>setPreviewRecord(r)}>দেখুন</button></td></tr>)}</tbody></table></div> : <p className="bh-empty-chart">এখনো কোনো জমির তথ্য সংরক্ষণ করা হয়নি।</p>}
-          </article>
-          <article className="bh-panel bh-quick-panel">
-            <h3><span>⚡</span> দ্রুত কাজের সুবিধা</h3>
-            <div className="bh-quick-grid">
-              <button type="button" onClick={()=>{setForm({...emptyForm});setEditingRecord(null);setPendingFiles([]);setShowForm(true);setActivePage('dashboard');window.scrollTo({top:0,behavior:'smooth'})}}><b>＋</b>নতুন জমি যোগ করুন</button>
-              <button type="button" onClick={()=>{document.getElementById('land-search')?.focus();document.getElementById('records-section')?.scrollIntoView({behavior:'smooth'})}}><b>⌕</b>সার্চ করুন</button>
-              <button type="button" disabled={!records.length} onClick={()=>setPrintRecord(records)}><b>▣</b>সম্মিলিত PDF</button>
-              <button type="button" onClick={exportRecordsCsv} disabled={!records.length}><b>⇩</b>CSV Export</button>
-            </div>
-          </article>
-        </section>
-
-        {message && activePage === 'dashboard' && (
-          <div className="notice">
-            {message}
-            <button onClick={() => setMessage('')}><X size={15} /></button>
-          </div>
-        )}
-        </>
-        </div>
-
-        <div style={{ display: activePage === 'records' ? 'block' : 'none' }}>
-        <>
-        {message && activePage === 'records' && (
-          <div className="notice">
-            {message}
-            <button onClick={() => setMessage('')}><X size={15} /></button>
-          </div>
         )}
 
         <div className="toolbar">
@@ -1969,6 +1949,7 @@ function App() {
               <dl style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px', margin: 0 }}>
                 {[
                   ['দলিল নম্বর', previewRecord.deed_number],
+                  ['তারিখ', previewRecord.deed_date],
                   ['দাতার নাম', previewRecord.donor_name],
                   ['গ্রহীতার নাম', previewRecord.recipient_name],
                   ['মৌজা', previewRecord.mouza],
@@ -2090,7 +2071,7 @@ function App() {
                 <h2>জমির সম্পূর্ণ বিবরণ</h2>
                 <div className="report-grid">
                   {[
-                    ['দলিল নম্বর', record.deed_number], ['দাতার নাম', record.donor_name], ['গ্রহীতার নাম', record.recipient_name],
+                    ['দলিল নম্বর', record.deed_number], ['তারিখ', record.deed_date], ['দাতার নাম', record.donor_name], ['গ্রহীতার নাম', record.recipient_name],
                     ['মৌজা', record.mouza], ['সীট নম্বর', record.sheet_number], ['দাগের ধরন', record.dag_type], ['দাগ নম্বর', record.dag_number],
                     ['খতিয়ানের ধরন', record.khatian_type], ['খতিয়ান নম্বর', record.khatian_number], ['নামজারি কেস নম্বর', record.mutation_case_number],
                     ['হোল্ডিং নম্বর', record.holding_number], ['মোট জমি', `${record.total_land ?? '—'} ${record.total_land_unit || 'শতক'}`],
@@ -2147,22 +2128,22 @@ function App() {
         )}
 
         <style>{`
-          .bh-app-shell{display:grid!important;grid-template-columns:226px minmax(0,1fr)!important;min-height:100vh!important;background:#f3f7fb!important;align-items:stretch!important}
+          .bh-app-shell{display:grid!important;grid-template-columns:226px minmax(0,1fr)!important;min-height:100vh!important;background:#f1e5d6!important;align-items:stretch!important}
           .bh-sidebar{background:linear-gradient(180deg,#08713e 0%,#005b38 72%,#064c30 100%);color:#fff;display:flex;flex-direction:column;min-height:100vh;position:sticky;top:0;height:100vh;overflow:auto;z-index:20}
           .bh-brand{background:#fff;color:#12623d;text-align:center;padding:20px 14px 17px;display:flex;align-items:center;flex-direction:column;gap:3px}
           .bh-brand img{width:82px;height:82px;object-fit:contain}.bh-brand strong{font-size:25px;line-height:1.2}.bh-brand span{font-size:12px;font-weight:800;letter-spacing:.5px}.bh-brand small{font-size:11px;color:#52645a;margin-top:8px;line-height:1.5}
           .bh-nav{display:grid;gap:5px;padding:17px 11px}.bh-nav a,.bh-nav button{border:0;background:transparent;color:#effff5;text-decoration:none;text-align:left;display:flex;align-items:center;gap:12px;padding:12px 13px;border-radius:10px;font:600 14px inherit;cursor:pointer}.bh-nav a span,.bh-nav button span{font-size:21px;width:23px;text-align:center}.bh-nav a.active,.bh-nav a:hover,.bh-nav button:hover{background:#19a83d;color:#fff;box-shadow:0 5px 14px #003d2b55}
           .bh-sidebar-bottom{margin-top:auto;text-align:center;padding:15px 12px 18px;background:linear-gradient(0deg,#06472d,#08713e)}.bh-landscape{font-size:25px;padding:10px 0}.bh-sidebar-bottom strong{display:block;font-size:19px}.bh-sidebar-bottom small{display:block;font-size:11px;line-height:1.5;margin:5px auto;max-width:170px}.bh-sidebar-bottom p{border-top:1px solid #ffffff30;padding-top:12px;font-size:11px;line-height:1.6;margin:12px 0 0}
           .bh-content{width:100%;max-width:none!important;margin:0!important;padding:0 25px 22px!important;box-sizing:border-box;min-width:0}
-          .bh-topbar{min-height:95px;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 2px;background:linear-gradient(105deg,#e7f7eb,#f5fbff 58%,#e6f2e9);border-bottom:1px solid #d9e8df;margin:0 -25px 18px;padding-left:25px;padding-right:25px}
+          .bh-topbar{min-height:95px;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 2px;background:linear-gradient(90deg,rgba(250,241,227,.94) 0%,rgba(250,241,227,.82) 44%,rgba(250,241,227,.22) 100%),url('/bhumighor-banner.png') center 48%/cover no-repeat;border-bottom:1px solid #d8c3a8;margin:0 -25px 18px;padding-left:25px;padding-right:25px}
           .bh-user-welcome{display:flex;align-items:center;gap:13px}.bh-wave{font-size:32px}.bh-user-welcome h1{font-size:24px;margin:0;color:#153d2b}.bh-user-welcome p{margin:4px 0 0;color:#557064;font-size:13px}.bh-user-pill{display:flex;align-items:center;gap:9px;background:#ffffffc9;border:1px solid #e1eae4;border-radius:30px;padding:7px 10px;font-size:12px;max-width:55%}.bh-user-pill>span:nth-child(2){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bh-avatar{width:32px;height:32px;border-radius:50%;background:#e5edf1;display:grid;place-items:center;font-size:20px}.bh-user-pill button{border:0;background:#e9f4ed;color:#17613d;border-radius:20px;padding:7px 10px;font-weight:700;cursor:pointer;white-space:nowrap}
           .bh-user-pill{cursor:pointer;text-align:left;font-family:inherit}.bh-user-identity{display:flex;flex-direction:column;gap:2px;min-width:0}.bh-user-identity strong{font-size:13px;color:#17452f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bh-user-identity small{font-size:10px;color:#64756c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bh-profile-edit-label{font-size:11px;color:#17613d;background:#e9f4ed;border-radius:18px;padding:7px 9px;white-space:nowrap}.bh-avatar{overflow:hidden}.bh-avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%}.bh-nav button.active{background:#19a83d;color:#fff;box-shadow:0 5px 14px #003d2b55}.bh-profile-page{max-width:980px;margin:25px auto;padding:0 10px}.bh-profile-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}.bh-profile-heading span{font-size:12px;color:#148044}.bh-profile-heading h2{font-size:25px;color:#17452f;margin:4px 0}.bh-profile-heading p{font-size:13px;color:#718178;margin:0}.bh-profile-heading>button{border:1px solid #cfe1d5;background:#fff;color:#17613d;border-radius:9px;padding:10px 13px;cursor:pointer}.bh-profile-card{display:grid;grid-template-columns:260px 1fr;gap:30px;background:#fff;border:1px solid #dce8df;border-radius:16px;padding:28px;box-shadow:0 5px 18px #193e5410}.bh-profile-photo-area{display:flex;flex-direction:column;align-items:center;gap:10px}.bh-profile-photo{width:150px;height:150px;border-radius:50%;overflow:hidden;background:#edf5ef;border:4px solid #d9eee0;display:grid;place-items:center;font-size:55px;color:#6d8a78}.bh-profile-photo img{width:100%;height:100%;object-fit:cover}.bh-photo-upload{background:#e9f5ed;color:#17613d;border-radius:9px;padding:10px 15px;font-size:13px;font-weight:700;cursor:pointer}.bh-photo-upload input{display:none}.bh-profile-photo-area small{font-size:11px;color:#7b8b84}.bh-profile-fields{display:grid;align-content:start;gap:14px}.bh-profile-fields label{display:grid;gap:7px;font-size:13px;font-weight:700;color:#294b38}.bh-profile-fields input{width:100%;box-sizing:border-box;border:1px solid #d5e2da;border-radius:9px;padding:12px;font:inherit;font-weight:400;color:#263d32;background:#fff}.bh-profile-fields input:read-only{background:#f4f7f5;color:#6c7b72}.bh-profile-fields>p{font-size:11px;color:#7b8b84;margin:-5px 0 0}.bh-profile-message{font-size:12px;color:#17613d;background:#edf8f0;border-radius:8px;padding:10px}.bh-profile-save{border:0;background:#08713e;color:#fff;border-radius:9px;padding:12px 18px;font-weight:700;cursor:pointer;justify-self:start}.bh-profile-save:disabled{opacity:.6;cursor:wait}
           .bh-hero{min-height:108px;border-radius:17px;padding:19px 24px;margin:0 0 17px;display:flex;align-items:center;justify-content:space-between;gap:12px;color:#fff;background:linear-gradient(100deg,#08713e,#159b4c 55%,#b5dcae);box-shadow:0 7px 18px #0b62301b;overflow:hidden}.bh-hero span{font-size:11px;opacity:.85}.bh-hero h2{font-size:22px;margin:5px 0}.bh-hero p{font-size:12px;margin:0;opacity:.9}.bh-hero img{width:82px;height:82px;object-fit:contain;background:#ffffffed;border-radius:50%;padding:7px}
           .bh-stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:17px}.bh-stat{display:flex;align-items:center;gap:12px;min-width:0;padding:15px;border-radius:15px;border:1px solid #dce8ee;box-shadow:0 4px 12px #1d3b5010}.bh-stat>div{min-width:0}.bh-stat-icon{width:48px;height:48px;flex:0 0 48px;border-radius:50%;display:grid;place-items:center;font-size:24px;font-weight:800}.bh-stat small{display:block;color:#52616b;font-size:11px}.bh-stat strong{display:block;font-size:21px;line-height:1.5;color:#122f25;overflow-wrap:anywhere}.bh-stat-blue{background:#e5f2ff;border-color:#b8d9fb}.bh-stat-blue .bh-stat-icon{background:#1479e8;color:white}.bh-stat-green{background:#e5f8e8;border-color:#b6e8bd}.bh-stat-green .bh-stat-icon{background:#0b8b39;color:white}.bh-stat-orange{background:#fff1d8;border-color:#f5d39a}.bh-stat-orange .bh-stat-icon{background:#f28a0b;color:white}.bh-stat-purple{background:#f0e7ff;border-color:#d7c1ff}.bh-stat-purple .bh-stat-icon{background:#7738d7;color:white}
-          .bh-chart-grid{display:grid;grid-template-columns:1.1fr 1fr 1fr;gap:13px;margin-bottom:17px}.bh-panel{background:#fff;border:1px solid #dce6ee;border-radius:15px;overflow:hidden;box-shadow:0 4px 12px #193e5410;min-width:0}.bh-panel>h3,.bh-panel-heading{margin:0;padding:12px 15px;background:#08713e;color:#fff;font-size:15px;font-weight:800;display:flex;align-items:center;gap:9px}.bh-panel>h3 span,.bh-panel-heading h3 span{font-size:19px}.bh-bar-chart{height:180px;display:flex;align-items:stretch;justify-content:space-around;gap:10px;padding:18px 17px 0;border-bottom:1px solid #e5edf3;background:repeating-linear-gradient(to bottom,transparent 0,transparent 43px,#edf2f7 44px)}.bh-bar-item{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:5px}.bh-bar-item strong{font-size:11px;color:#253a32}.bh-bar-track{height:115px;width:min(48px,80%);display:flex;align-items:flex-end;background:#edf3f8;border-radius:7px 7px 0 0;overflow:hidden}.bh-bar-track i{width:100%;display:block;border-radius:7px 7px 0 0;background:linear-gradient(180deg,#2498f4,#0870d4)}.bh-bar-item:nth-child(2) .bh-bar-track i{background:linear-gradient(180deg,#62d83e,#1ba52d)}.bh-bar-item:nth-child(3) .bh-bar-track i{background:linear-gradient(180deg,#ffb53b,#f28a0b)}.bh-bar-item:nth-child(4) .bh-bar-track i{background:linear-gradient(180deg,#a76af3,#7738d7)}.bh-bar-item small{font-size:11px;padding:5px 0;color:#405249}.bh-chart-note{font-size:10px;color:#7b8b84;margin:8px 14px 12px}.bh-empty-chart{font-size:12px;color:#718178;padding:16px}.bh-mouza-list{padding:12px 14px;display:grid;gap:13px}.bh-mouza-row{display:flex;align-items:center;gap:9px}.bh-dot{width:12px;height:12px;border-radius:4px;flex:0 0 12px;background:#1686ec}.dot-1{background:#1caa42}.dot-2{background:#f49a17}.dot-3{background:#8850dc}.bh-mouza-row div{min-width:0;flex:1}.bh-mouza-row strong,.bh-mouza-row small{display:block;overflow-wrap:anywhere}.bh-mouza-row strong{font-size:12px;color:#263d32}.bh-mouza-row small{font-size:10px;color:#75837c;margin-top:3px}.bh-mouza-row>b{font-size:11px;color:#52645a}.bh-category-list{padding:13px 14px;display:grid;gap:14px}.bh-category-list>div>div{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#35483f;margin-bottom:5px}.bh-category-list>div>div span{overflow-wrap:anywhere}.bh-category-list>div>div b{white-space:nowrap}.bh-category-list i{display:block;height:8px;border-radius:20px;background:#edf2f5;overflow:hidden}.bh-category-list em{display:block;height:100%;background:linear-gradient(90deg,#13a44b,#66c84a);border-radius:20px}
+          .bh-chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:13px;margin-bottom:17px}.bh-panel{background:#fff;border:1px solid #dce6ee;border-radius:15px;overflow:hidden;box-shadow:0 4px 12px #193e5410;min-width:0}.bh-panel>h3,.bh-panel-heading{margin:0;padding:12px 15px;background:#08713e;color:#fff;font-size:15px;font-weight:800;display:flex;align-items:center;gap:9px}.bh-panel>h3 span,.bh-panel-heading h3 span{font-size:19px}.bh-bar-chart{height:180px;display:flex;align-items:stretch;justify-content:space-around;gap:10px;padding:18px 17px 0;border-bottom:1px solid #e5edf3;background:repeating-linear-gradient(to bottom,transparent 0,transparent 43px,#edf2f7 44px)}.bh-bar-item{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:5px}.bh-bar-item strong{font-size:11px;color:#253a32}.bh-bar-track{height:115px;width:min(48px,80%);display:flex;align-items:flex-end;background:#edf3f8;border-radius:7px 7px 0 0;overflow:hidden}.bh-bar-track i{width:100%;display:block;border-radius:7px 7px 0 0;background:linear-gradient(180deg,#2498f4,#0870d4)}.bh-bar-item:nth-child(2) .bh-bar-track i{background:linear-gradient(180deg,#62d83e,#1ba52d)}.bh-bar-item:nth-child(3) .bh-bar-track i{background:linear-gradient(180deg,#ffb53b,#f28a0b)}.bh-bar-item:nth-child(4) .bh-bar-track i{background:linear-gradient(180deg,#a76af3,#7738d7)}.bh-bar-item small{font-size:11px;padding:5px 0;color:#405249}.bh-chart-note{font-size:10px;color:#7b8b84;margin:8px 14px 12px}.bh-empty-chart{font-size:12px;color:#718178;padding:16px}.bh-mouza-list{padding:12px 14px;display:grid;gap:13px}.bh-mouza-row{display:flex;align-items:center;gap:9px}.bh-dot{width:12px;height:12px;border-radius:4px;flex:0 0 12px;background:#1686ec}.dot-1{background:#1caa42}.dot-2{background:#f49a17}.dot-3{background:#8850dc}.bh-mouza-row div{min-width:0;flex:1}.bh-mouza-row strong,.bh-mouza-row small{display:block;overflow-wrap:anywhere}.bh-mouza-row strong{font-size:12px;color:#263d32}.bh-mouza-row small{font-size:10px;color:#75837c;margin-top:3px}.bh-mouza-row>b{font-size:11px;color:#52645a}.bh-category-list{padding:13px 14px;display:grid;gap:14px}.bh-category-list>div>div{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#35483f;margin-bottom:5px}.bh-category-list>div>div span{overflow-wrap:anywhere}.bh-category-list>div>div b{white-space:nowrap}.bh-category-list i{display:block;height:8px;border-radius:20px;background:#edf2f5;overflow:hidden}.bh-category-list em{display:block;height:100%;background:linear-gradient(90deg,#13a44b,#66c84a);border-radius:20px}
           .bh-lower-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(245px,.9fr);gap:13px;margin-bottom:20px}.bh-panel-heading{justify-content:space-between}.bh-panel-heading h3{font-size:15px;margin:0;display:flex;align-items:center;gap:8px}.bh-panel-heading a{font-size:11px;color:white;text-decoration:none;border:1px solid #ffffffa8;border-radius:8px;padding:6px 9px;white-space:nowrap}.bh-recent-table-wrap{overflow:auto;padding:10px}.bh-recent-table{border-collapse:collapse;width:100%;font-size:11px;white-space:nowrap}.bh-recent-table th{background:#f0f5fa;color:#34463e;font-weight:800}.bh-recent-table th,.bh-recent-table td{padding:9px 8px;border:1px solid #e0e9f0;text-align:left}.bh-recent-table td{color:#405148}.bh-view-btn{border:0;border-radius:7px;background:#e5f1ff;color:#0871d6;padding:5px 9px;font-size:10px;font-weight:700;cursor:pointer}.bh-quick-grid{padding:11px;display:grid;grid-template-columns:1fr 1fr;gap:8px}.bh-quick-grid button{min-height:82px;border:1px solid #cce7d3;border-radius:12px;background:#e8f9ed;color:#194c30;font-weight:700;font-size:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;cursor:pointer}.bh-quick-grid button:nth-child(2){background:#e8f3ff;border-color:#c5dcfb;color:#145a9d}.bh-quick-grid button:nth-child(3){background:#f2eaff;border-color:#dcc8ff;color:#6530a8}.bh-quick-grid button:nth-child(4){background:#e2fbf3;border-color:#b8edda;color:#08754b}.bh-quick-grid button:disabled{opacity:.45;cursor:not-allowed}.bh-quick-grid b{font-size:24px;line-height:1}
           #records-section{scroll-margin-top:16px}.bh-content .toolbar{margin-top:18px}.bh-content .records{margin-top:18px}.bh-content .records>.section-title{border-bottom:1px solid #dce8df;padding-bottom:10px}.bh-content>footer{text-align:center;color:#718178;font-size:11px;padding:18px}
-          @media(max-width:1050px){.bh-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.bh-chart-grid{grid-template-columns:1fr 1fr}.bh-chart-grid .bh-panel:first-child{grid-column:span 2}}
+          @media(max-width:1050px){.bh-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.bh-chart-grid{grid-template-columns:1fr 1fr}.bh-chart-grid .bh-panel:first-child{grid-column:auto}}
           .bh-user-pill{gap:12px;padding:8px 14px;min-height:64px;max-width:360px}.bh-avatar{width:48px;height:48px;flex:0 0 48px;font-size:23px;display:grid;place-items:center;border-radius:50%;background:#e7f2eb}.bh-user-identity strong{font-size:17px;max-width:220px}.bh-profile-edit-label{font-size:12px;padding:9px 12px}.bh-user-welcome h1{font-size:27px}.bh-settings-card{max-width:650px;display:grid;gap:14px;background:#fff;border:1px solid #dce8df;border-radius:16px;padding:28px;box-shadow:0 5px 18px #193e5410}.bh-settings-card h3{font-size:20px;color:#17452f;margin:0}.bh-settings-card>p{font-size:13px;color:#718178;margin:-7px 0 5px}.bh-settings-card label{display:grid;gap:7px;font-size:13px;font-weight:700;color:#294b38}.bh-settings-card input{width:100%;box-sizing:border-box;border:1px solid #d5e2da;border-radius:9px;padding:12px;font:inherit;font-weight:400;color:#263d32;background:#fff}
           @media(max-width:760px){.bh-profile-card{grid-template-columns:1fr;padding:20px}.bh-profile-heading{align-items:flex-start;flex-direction:column}.bh-profile-photo{width:125px;height:125px}.bh-user-identity small{display:none}.bh-profile-edit-label{display:none}.bh-app-shell{grid-template-columns:1fr!important}.bh-sidebar{position:relative;height:auto;min-height:0}.bh-brand{flex-direction:row;justify-content:flex-start;text-align:left;padding:9px 14px}.bh-brand img{width:45px;height:45px}.bh-brand strong{font-size:18px}.bh-brand span,.bh-brand small{display:none}.bh-nav{display:flex;overflow:auto;padding:7px;gap:6px}.bh-nav a,.bh-nav button{white-space:nowrap;padding:9px 11px;font-size:12px}.bh-nav a span,.bh-nav button span{font-size:16px;width:auto}.bh-sidebar-bottom{display:none}.bh-content{padding:0 12px 18px!important}.bh-topbar{margin:0 -12px 12px;padding:10px 12px;min-height:70px}.bh-user-welcome h1{font-size:18px}.bh-user-welcome p{font-size:10px}.bh-wave{font-size:23px}.bh-user-pill{max-width:55%;font-size:11px;gap:7px;padding:6px 8px;min-height:54px}.bh-avatar{width:40px;height:40px;flex-basis:40px}.bh-user-identity strong{font-size:13px;max-width:125px}.bh-user-pill button{display:none}.bh-hero{padding:14px}.bh-hero h2{font-size:17px}.bh-hero p{font-size:10px}.bh-hero img{width:58px;height:58px}.bh-stat-grid{gap:8px}.bh-stat{padding:10px;gap:8px}.bh-stat-icon{width:36px;height:36px;flex-basis:36px;font-size:18px}.bh-stat strong{font-size:15px}.bh-stat small{font-size:9px}.bh-chart-grid{grid-template-columns:1fr}.bh-chart-grid .bh-panel:first-child{grid-column:auto}.bh-lower-grid{grid-template-columns:1fr}.bh-panel>h3,.bh-panel-heading{font-size:13px}.bh-recent-table th,.bh-recent-table td{padding:7px 6px}}
         `}</style>
