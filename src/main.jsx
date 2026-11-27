@@ -21,7 +21,9 @@ const emptyForm = {
   khatian_type: 'CS',
   khatian_number: '',
   mutation_case_number: '',
+  mutation_case_date: '',
   holding_number: '',
+  holding_date: '',
   total_land: '',
   owned_land: '',
   total_land_unit: 'শতক',
@@ -280,7 +282,7 @@ function App() {
   const csvColumns = [
     'deed_number', 'deed_date', 'donor_name', 'recipient_name', 'mouza', 'sheet_number',
     'dag_type', 'dag_number', 'khatian_type', 'khatian_number',
-    'mutation_case_number', 'holding_number', 'total_land', 'owned_land',
+    'mutation_case_number', 'mutation_case_date', 'holding_number', 'holding_date', 'total_land', 'owned_land',
     'total_land_unit', 'owned_land_unit'
   ]
 
@@ -606,7 +608,9 @@ function App() {
       khatian_type: record.khatian_type || 'CS',
       khatian_number: record.khatian_number || '',
       mutation_case_number: record.mutation_case_number || '',
+      mutation_case_date: record.mutation_case_date || '',
       holding_number: record.holding_number || '',
+      holding_date: record.holding_date || '',
       total_land: record.total_land ?? '',
       owned_land: record.owned_land ?? '',
       total_land_unit: record.total_land_unit || 'শতক',
@@ -1374,10 +1378,6 @@ function App() {
           <a className={activePage === 'dashboard' ? 'active' : ''} href="#dashboard" onClick={() => setActivePage('dashboard')}><span>⌂</span> ড্যাশবোর্ড</a>
           <button type="button" className={activePage === 'profile' ? 'active' : ''} onClick={() => { setActivePage('profile'); setProfileMessage('') }}><span>◉</span> আমার প্রোফাইল</button>
           <a className={activePage === 'records' ? 'active' : ''} href="#records-section" onClick={() => setActivePage('records')}><span>▦</span> জমির তথ্য</a>
-          <a href="#records-section" onClick={() => setActivePage('records')}><span>▤</span> সংযুক্ত কাগজপত্র</a>
-          <a href="#records-section" onClick={() => setActivePage('records')}><span>▣</span> সম্মিলিত PDF</a>
-          <a href="#records-section" onClick={() => setActivePage('records')}><span>⇅</span> CSV Export/Import</a>
-          <a href="#records-section" onClick={() => setActivePage('records')}><span>⌕</span> সার্চ ও ফিল্টার</a>
           <button type="button" className={activePage === 'settings' ? 'active' : ''} onClick={() => { setActivePage('settings'); setPasswordChangeMessage('') }}><span>⚙</span> সেটিংস</button>
           <button type="button" onClick={() => supabase.auth.signOut()}><span>⇥</span> লগআউট</button>
         </nav>
@@ -1482,13 +1482,12 @@ function App() {
         <section className="bh-lower-grid">
           <article className="bh-panel bh-recent-panel">
             <div className="bh-panel-heading"><h3><span>◷</span> সাম্প্রতিক জমির রেকর্ড</h3><a href="#records-section" onClick={() => setActivePage('records')}>সব দেখুন →</a></div>
-            {records.length ? <div className="bh-recent-table-wrap"><table className="bh-recent-table"><thead><tr><th>#</th><th>মৌজা</th><th>দাগ নং</th><th>খতিয়ান নং</th><th>মোট জমি</th><th>কাগজপত্র</th><th>দেখুন</th></tr></thead><tbody>{records.slice(0,5).map((r,index)=><tr key={r.id}><td>{(index+1).toLocaleString('bn-BD')}</td><td>{r.mouza || '—'}</td><td>{r.dag_number || '—'}</td><td>{r.khatian_number || '—'}</td><td>{r.total_land ?? '—'} {r.total_land_unit || 'শতক'}</td><td>{(r.land_record_files||[]).length.toLocaleString('bn-BD')} টি</td><td><button type="button" className="bh-view-btn" onClick={()=>setPreviewRecord(r)}>দেখুন</button></td></tr>)}</tbody></table></div> : <p className="bh-empty-chart">এখনো কোনো জমির তথ্য সংরক্ষণ করা হয়নি।</p>}
+            {records.length ? <div className="bh-recent-table-wrap"><table className="bh-recent-table"><thead><tr><th>#</th><th>মালিকের নাম</th><th>মৌজা</th><th>দাগ নং</th><th>খতিয়ান নং</th><th>মোট জমি</th><th>দেখুন</th></tr></thead><tbody>{records.slice(0,5).map((r,index)=><tr key={r.id}><td>{(index+1).toLocaleString('bn-BD')}</td><td>{r.recipient_name || '—'}</td><td>{r.mouza || '—'}</td><td>{r.dag_number || '—'}</td><td>{r.khatian_number || '—'}</td><td>{r.total_land ?? '—'} {r.total_land_unit || 'শতক'}</td><td><button type="button" className="bh-view-btn" onClick={()=>setPreviewRecord(r)}>দেখুন</button></td></tr>)}</tbody></table></div> : <p className="bh-empty-chart">এখনো কোনো জমির তথ্য সংরক্ষণ করা হয়নি।</p>}
           </article>
           <article className="bh-panel bh-quick-panel">
             <h3><span>⚡</span> দ্রুত কাজের সুবিধা</h3>
             <div className="bh-quick-grid">
               <button type="button" onClick={()=>{setForm({...emptyForm});setEditingRecord(null);setPendingFiles([]);setMapAttachmentFile(null);setShowForm(true);setActivePage('records');window.scrollTo({top:0,behavior:'smooth'})}}><b>＋</b>নতুন জমি যোগ করুন</button>
-              <button type="button" onClick={exportRecordsCsv} disabled={!records.length}><b>⇩</b>CSV Export</button>
             </div>
           </article>
         </section>
@@ -1588,13 +1587,21 @@ function App() {
                 <input value={form.mutation_case_number} onChange={e => setForm({ ...form, mutation_case_number: e.target.value })} placeholder="নামজারী কেস নম্বর লিখুন" />
               </label>
               <label>
-                সীট নম্বর
-                <input value={form.sheet_number} onChange={e => setForm({ ...form, sheet_number: e.target.value })} placeholder="সীট নম্বর লিখুন" />
+                নামজারী কেসের তারিখ
+                <input type="date" value={form.mutation_case_date} onChange={e => setForm({ ...form, mutation_case_date: e.target.value })} />
               </label>
-
               <label>
                 হোল্ডিং নম্বর
                 <input value={form.holding_number} onChange={e => setForm({ ...form, holding_number: e.target.value })} placeholder="হোল্ডিং নম্বর লিখুন" />
+              </label>
+              <label>
+                হোল্ডিংয়ের তারিখ
+                <input type="date" value={form.holding_date} onChange={e => setForm({ ...form, holding_date: e.target.value })} />
+              </label>
+
+              <label>
+                সীট নম্বর
+                <input value={form.sheet_number} onChange={e => setForm({ ...form, sheet_number: e.target.value })} placeholder="সীট নম্বর লিখুন" />
               </label>
 
               <div className="upload-section" style={{ margin: 0 }}>
@@ -1717,14 +1724,7 @@ function App() {
             <span>{filtered.length} টি</span>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', margin: '0 0 14px', padding: '12px', border: '1px solid #d5e4da', borderRadius: '10px', background: '#f5faf6' }}>
-            <button type="button" className="primary" onClick={exportRecordsCsv} disabled={!records.length}>
-              <Download size={16} /> Excel/CSV Export
-            </button>
-            <button type="button" className="ghost" onClick={() => document.getElementById('bhumighor-csv-import')?.click()} disabled={importBusy}>
-              <Upload size={16} /> {importBusy ? 'Import হচ্ছে...' : 'CSV Import'}
-            </button>
             <input id="bhumighor-csv-import" type="file" accept=".csv,text/csv" onChange={importRecordsCsv} style={{ display: 'none' }} />
-            <small style={{ alignSelf: 'center', color: '#52645a' }}>Excel-এ খোলা যায় এমন CSV ফরম্যাট। Import করলে নতুন রেকর্ড যুক্ত হবে; আগের তথ্য মুছবে না।</small>
           </div>
           {filtered.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px', padding: '12px', marginBottom: '14px', border: '1px solid #d5e4da', borderRadius: '10px', background: '#f5faf6' }}>
@@ -1959,7 +1959,9 @@ function App() {
                   ['খতিয়ানের ধরন', previewRecord.khatian_type],
                   ['খতিয়ান নম্বর', previewRecord.khatian_number],
                   ['নামজারি কেস নম্বর', previewRecord.mutation_case_number],
+                  ['নামজারী কেসের তারিখ', previewRecord.mutation_case_date],
                   ['হোল্ডিং নম্বর', previewRecord.holding_number],
+                  ['হোল্ডিংয়ের তারিখ', previewRecord.holding_date],
                   ['মোট জমি', `${previewRecord.total_land ?? '—'} ${previewRecord.total_land_unit || 'শতক'}`],
                   ['ক্রয়/নিজস্ব জমি', `${previewRecord.owned_land ?? '—'} ${previewRecord.owned_land_unit || 'শতক'}`]
                 ].map(([label, value]) => (
@@ -2074,7 +2076,7 @@ function App() {
                     ['দলিল নম্বর', record.deed_number], ['তারিখ', record.deed_date], ['দাতার নাম', record.donor_name], ['গ্রহীতার নাম', record.recipient_name],
                     ['মৌজা', record.mouza], ['সীট নম্বর', record.sheet_number], ['দাগের ধরন', record.dag_type], ['দাগ নম্বর', record.dag_number],
                     ['খতিয়ানের ধরন', record.khatian_type], ['খতিয়ান নম্বর', record.khatian_number], ['নামজারি কেস নম্বর', record.mutation_case_number],
-                    ['হোল্ডিং নম্বর', record.holding_number], ['মোট জমি', `${record.total_land ?? '—'} ${record.total_land_unit || 'শতক'}`],
+                    ['হোল্ডিং নম্বর', record.holding_number], ['নামজারী কেসের তারিখ', record.mutation_case_date], ['হোল্ডিংয়ের তারিখ', record.holding_date], ['মোট জমি', `${record.total_land ?? '—'} ${record.total_land_unit || 'শতক'}`],
                     ['ক্রয়/নিজস্ব জমি', `${record.owned_land ?? '—'} ${record.owned_land_unit || 'শতক'}`]
                   ].map(([label, value]) => <div className="report-field" key={label}><span className="report-label">{label}</span><span className="report-value">{value === null || value === undefined || value === '' ? '—' : value}</span></div>)}
                 </div>
