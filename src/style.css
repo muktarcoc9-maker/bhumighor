@@ -224,3 +224,16 @@ footer{text-align:center;color:#8b978e;padding:40px 0 20px;font-size:12px}.cente
     height: 58px;
   }
 }
+/* জাতীয় স্মৃতিসৌধের সাইডবার ব্যাকগ্রাউন্ড */
+.app-shell .bh-sidebar {
+  background-image:
+    linear-gradient(
+      rgba(0, 65, 43, 0.35),
+      rgba(0, 45, 30, 0.55)
+    ),
+    url('/bhumighor_sidebar_background.jpg') !important;
+
+  background-size: cover !important;
+  background-position: center bottom !important;
+  background-repeat: no-repeat !important;
+}
